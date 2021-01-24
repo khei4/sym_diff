@@ -65,9 +65,18 @@ fn variable_parser() {
     );
     println!("{:?}", e);
 }
-// TODO: (expr)
+
 fn primary<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
-    either(unsigned_number(), variable())
+    either(
+        unsigned_number(),
+        either(
+            variable(),
+            right(
+                match_literal("("),
+                left(whitespace_wrap(expr()), match_literal(")")),
+            ),
+        ),
+    )
 }
 
 fn func<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
