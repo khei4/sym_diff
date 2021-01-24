@@ -1,4 +1,3 @@
-mod environment;
 mod expr;
 mod parse;
 mod parser_combinator;
