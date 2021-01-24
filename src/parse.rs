@@ -1,14 +1,12 @@
-use super::expr::{Env, Environment, Expr, Op, Var};
+use super::expr::{Env, Environment, Expr, Op, Var, C};
 use super::parser_combinator::*;
 use std::rc::Rc;
 
 fn unsigned_number<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
     one_or_more(any_char.pred(|c| c.0.is_numeric())).map(|chars| {
-        let expr = Expr::Num(
-            chars
-                .iter()
-                .fold(0, |s, c| s * 10 + c.0.to_digit(10).expect("") as u64),
-        );
+        let expr = Expr::Num(chars.iter().fold(C::new(0, 1), |s, c| {
+            s * C::new(10, 1) + C::new(c.0.to_digit(10).expect("") as i64, 1)
+        }));
         let env = chars.last().expect("").1;
         if let Some(p) = env.borrow().search_expr(&expr) {
             return (p, env);
@@ -21,15 +19,15 @@ fn unsigned_number<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
 fn number_parser() {
     let e = Environment::new();
     assert_eq!(
-        Ok(("", &e, (Rc::new(Expr::Num(64)), &e))),
+        Ok(("", &e, (Rc::new(Expr::Num(C::new(64, 1))), &e))),
         unsigned_number().parse("64", &e)
     );
     assert_eq!(
-        Ok(("", &e, (Rc::new(Expr::Num(12333)), &e))),
+        Ok(("", &e, (Rc::new(Expr::Num(C::new(12333, 1))), &e))),
         unsigned_number().parse("12333", &e)
     );
     assert_eq!(
-        Ok(("", &e, (Rc::new(Expr::Num(64)), &e))),
+        Ok(("", &e, (Rc::new(Expr::Num(C::new(64, 1))), &e))),
         unsigned_number().parse("64", &e)
     );
     println!("{:?}", e);
@@ -115,7 +113,7 @@ fn factor<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                     exp1: one.clone(),
                     exp2: pow,
                 };
-                let mut res = Rc::new(Expr::Num(std::u64::MAX));
+                let mut res = Rc::new(Expr::Num(C::new(std::i64::MAX, 1)));
                 let optoin_expr = env.borrow().search_expr(&expr);
                 if optoin_expr.is_some() {
                     res = optoin_expr.unwrap();
@@ -156,8 +154,8 @@ fn factor_parser() {
         exp1: Rc::new(Expr::Var(Var::new(0))),
         exp2: Rc::new(Expr::BinOp {
             op: Op::Pow,
-            exp1: Rc::new(Expr::Num(3)),
-            exp2: Rc::new(Expr::Num(2)),
+            exp1: Rc::new(Expr::Num(C::new(3, 1))),
+            exp2: Rc::new(Expr::Num(C::new(2, 1))),
         }),
     });
     assert_eq!(

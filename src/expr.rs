@@ -1,6 +1,10 @@
+pub use num_rational::Rational64;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+
+pub type C = Rational64;
+
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Var {
     id: usize,
@@ -35,7 +39,7 @@ pub enum Expr {
     Exp(Rc<Expr>),
     Neg(Rc<Expr>),
     Var(Var),
-    Num(u64),
+    Num(Rational64),
 }
 
 // 文字列からの検索, 変数からの検索を両方早くしたいんだけど, Mapにすると重そう
