@@ -105,6 +105,18 @@ pub fn match_literal<'a>(expected: &'static str) -> impl Parser<'a, ()> {
     }
 }
 
+pub fn one_of<'a>(expected: Vec<&'static str>) -> impl Parser<'a, &'static str> {
+    move |input: &'a str, env: &'a Env| {
+        for &e in expected.iter() {
+            match input.get(0..e.len()) {
+                Some(next) if next == e => return Ok((&input[expected.len()..], env, e)),
+                _ => continue,
+            }
+        }
+        Err(input)
+    }
+}
+
 pub fn whitespace_char<'a>() -> impl Parser<'a, (char, &'a Env)> {
     pred(any_char, |c| c.0.is_whitespace())
 }
