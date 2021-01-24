@@ -39,7 +39,7 @@ pub enum Expr {
     Exp(Rc<Expr>),
     Neg(Rc<Expr>),
     Var(Var),
-    Num(Rational64),
+    Num(C),
 }
 
 // 文字列からの検索, 変数からの検索を両方早くしたいんだけど, Mapにすると重そう
