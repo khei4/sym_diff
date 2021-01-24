@@ -77,12 +77,17 @@ impl Environment {
     }
 
     pub fn extend_expr(&mut self, e: Expr) -> Rc<Expr> {
-        let ptr_e = Rc::new(e.clone());
-        self.exprs.insert(e, ptr_e.clone());
-        ptr_e
+        match self.search_expr(&e) {
+            Some(ptr_e) => ptr_e,
+            None => {
+                let ptr_e = Rc::new(e.clone());
+                self.exprs.insert(e, ptr_e.clone());
+                ptr_e
+            }
+        }
     }
 
-    pub fn search_expr(&self, e: &Expr) -> Option<Rc<Expr>> {
+    fn search_expr(&self, e: &Expr) -> Option<Rc<Expr>> {
         match self.exprs.get(&e) {
             Some(ptr) => Some(ptr.clone()),
             None => None,
