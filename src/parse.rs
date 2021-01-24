@@ -67,25 +67,31 @@ fn variable_parser() {
 }
 
 fn primary<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
-    either(
-        unsigned_number(),
-        either(
-            variable(),
-            right(
-                match_literal("("),
-                left(whitespace_wrap(expr()), match_literal(")")),
-            ),
-        ),
-    )
+    either(unsigned_number(), either(variable(), parenthesized_expr()))
 }
 
 fn func<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
-    // either(whitespace_wrap(match_literal("cos")))
-    // right(
-    //     match_literal("("),
-    //     left(whitespace_wrap(expr()), match_literal(")")),
-    // )
-    primary()
+    pair(
+        one_of(vec!["sin", "cos", "tan", "log", "exp"]),
+        parenthesized_expr(),
+    )
+    .map(|(name, (ex, env))| {
+        let expr;
+        match name {
+            "sin" => expr = Expr::Sin(ex),
+            "cos" => expr = Expr::Cos(ex),
+            "tan" => expr = Expr::Tan(ex),
+            "log" => expr = Expr::Log(ex),
+            "exp" => expr = Expr::Exp(ex),
+            _ => unimplemented!(),
+        }
+        let optoin_expr = env.borrow().search_expr(&expr);
+        if optoin_expr.is_some() {
+            (optoin_expr.unwrap(), env)
+        } else {
+            (env.borrow_mut().extend_expr(expr), env)
+        }
+    })
 }
 
 fn unary<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
@@ -315,4 +321,11 @@ fn expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
             }
         })
     })
+}
+
+fn parenthesized_expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
+    right(
+        match_literal("("),
+        left(whitespace_wrap(expr()), match_literal(")")),
+    )
 }
