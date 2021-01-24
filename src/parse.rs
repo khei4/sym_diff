@@ -8,9 +8,6 @@ fn unsigned_number<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
             s * C::new(10, 1) + C::new(c.0.to_digit(10).expect("") as i64, 1)
         }));
         let env = chars.last().expect("").1;
-        if let Some(p) = env.borrow().search_expr(&expr) {
-            return (p, env);
-        }
         let p = env.borrow_mut().extend_expr(expr);
         return (p, env);
     })
@@ -85,12 +82,12 @@ fn func<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
             "exp" => expr = Expr::Exp(ex),
             _ => unimplemented!(),
         }
-        let optoin_expr = env.borrow().search_expr(&expr);
-        if optoin_expr.is_some() {
-            (optoin_expr.unwrap(), env)
-        } else {
-            (env.borrow_mut().extend_expr(expr), env)
-        }
+        // let optoin_expr = env.borrow().search_expr(&expr);
+        // if optoin_expr.is_some() {
+        //     (optoin_expr.unwrap(), env)
+        // } else {
+        (env.borrow_mut().extend_expr(expr), env)
+        // }
     })
 }
 
@@ -103,9 +100,6 @@ fn unary<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
             let expr;
             if vec_c_r.iter().filter(|(c, _e)| *c == '-').count() % 2 != 0 {
                 expr = Expr::Neg(p);
-                if let Some(p) = env.borrow().search_expr(&expr) {
-                    return (p, env);
-                }
                 let p = env.borrow_mut().extend_expr(expr);
                 return (p, env);
             } else {
@@ -129,12 +123,8 @@ fn factor<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                     exp2: pow,
                 };
                 let mut res = Rc::new(Expr::Num(C::new(std::i64::MAX, 1)));
-                let optoin_expr = env.borrow().search_expr(&expr);
-                if optoin_expr.is_some() {
-                    res = optoin_expr.unwrap();
-                } else {
-                    res = env.borrow_mut().extend_expr(expr);
-                }
+
+                res = env.borrow_mut().extend_expr(expr);
                 // 毎更新ごとに登録
                 while let Some((una, _env)) = unaries.pop() {
                     let mut cur_expr = (*res).clone();
@@ -149,12 +139,7 @@ fn factor<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                         }
                         _ => unreachable!(),
                     }
-                    let optoin_expr = env.borrow().search_expr(&cur_expr);
-                    if optoin_expr.is_some() {
-                        res = optoin_expr.unwrap();
-                    } else {
-                        res = env.borrow_mut().extend_expr(cur_expr);
-                    }
+                    res = env.borrow_mut().extend_expr(cur_expr);
                 }
                 (res, env)
             }
@@ -202,13 +187,7 @@ fn term<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                 (one.clone(), env)
             } else {
                 let env = factors.last().unwrap().1 .1;
-                let optoin_expr = env.borrow().search_expr(&(*one));
-                let mut res;
-                if optoin_expr.is_some() {
-                    res = optoin_expr.unwrap();
-                } else {
-                    res = env.borrow_mut().extend_expr((*one).clone());
-                }
+                let mut res = env.borrow_mut().extend_expr((*one).clone());
                 factors.reverse();
                 while let Some(((c, _e1), (f, _e2))) = factors.pop() {
                     let cur_expr;
@@ -229,12 +208,7 @@ fn term<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                         }
                         _ => unreachable!(),
                     }
-                    let optoin_expr = env.borrow().search_expr(&cur_expr);
-                    if optoin_expr.is_some() {
-                        res = optoin_expr.unwrap();
-                    } else {
-                        res = env.borrow_mut().extend_expr(cur_expr);
-                    }
+                    res = env.borrow_mut().extend_expr(cur_expr);
                 }
                 (res, env)
             }
@@ -283,13 +257,7 @@ fn expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                 (one.clone(), env)
             } else {
                 let env = terms.last().unwrap().1 .1;
-                let optoin_expr = env.borrow().search_expr(&(*one));
-                let mut res;
-                if optoin_expr.is_some() {
-                    res = optoin_expr.unwrap();
-                } else {
-                    res = env.borrow_mut().extend_expr((*one).clone());
-                }
+                let mut res = env.borrow_mut().extend_expr((*one).clone());
                 terms.reverse();
                 while let Some(((c, _e1), (t, _e2))) = terms.pop() {
                     let cur_expr;
@@ -310,12 +278,7 @@ fn expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                         }
                         _ => unreachable!(),
                     }
-                    let optoin_expr = env.borrow().search_expr(&cur_expr);
-                    if optoin_expr.is_some() {
-                        res = optoin_expr.unwrap();
-                    } else {
-                        res = env.borrow_mut().extend_expr(cur_expr);
-                    }
+                    res = env.borrow_mut().extend_expr(cur_expr);
                 }
                 (res, env)
             }
