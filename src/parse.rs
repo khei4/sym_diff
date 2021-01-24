@@ -101,12 +101,12 @@ fn unary<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
 }
 
 fn factor<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
-    unary().and_then(|(one, _env)| {
+    unary().and_then(|(one, env)| {
         zero_or_more(right(whitespace_wrap(match_literal("^")), unary())).map(move |mut unaries| {
-            let env = unaries.last().unwrap().1;
             if unaries.len() == 0 {
                 (one.clone(), env)
             } else {
+                let env = unaries.last().unwrap().1;
                 let mut pow: Rc<Expr> = unaries.pop().unwrap().0;
                 let expr = Expr::BinOp {
                     op: Op::Pow,
@@ -176,50 +176,134 @@ fn factor_parser() {
     // assert_eq!(Ok(("", expected_factor2)), factor().parse("x1 ^ 3 ^ 3 ^ 2"));
 }
 
-// fn term<'a>() -> impl Parser<'a, P> {
-//     factor().and_then(|val| {
-//         zero_or_more(right(whitespace_wrap(match_literal("*")), factor())).map(
-//             move |mut factors| {
-//                 if factors.len() == 0 {
-//                     // closureのmove, borrowingまったくわかってない...
-//                     val.clone()
-//                 } else {
-//                     let mut res = val.clone();
-//                     factors.reverse();
-//                     while let Some(f) = factors.pop() {
-//                         res = P::Mul {
-//                             exp1: Box::new(res),
-//                             exp2: Box::new(f),
-//                         };
-//                     }
-//                     res
-//                 }
-//             },
-//         )
-//     })
-// }
+fn term<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
+    factor().and_then(|(one, env)| {
+        zero_or_more(whitespace_wrap(pair(
+            whitespace_wrap(any_char.pred(|(c, _e)| *c == '*' || *c == '/')),
+            factor(),
+        )))
+        .map(move |mut factors| {
+            if factors.len() == 0 {
+                (one.clone(), env)
+            } else {
+                let env = factors.last().unwrap().1 .1;
+                let optoin_expr = env.borrow().search_expr(&(*one));
+                let mut res;
+                if optoin_expr.is_some() {
+                    res = optoin_expr.unwrap();
+                } else {
+                    res = env.borrow_mut().extend_expr((*one).clone());
+                }
+                factors.reverse();
+                while let Some(((c, _e1), (f, _e2))) = factors.pop() {
+                    let cur_expr;
+                    match c {
+                        '*' => {
+                            cur_expr = Expr::BinOp {
+                                op: Op::Mul,
+                                exp1: res,
+                                exp2: f,
+                            };
+                        }
+                        '/' => {
+                            cur_expr = Expr::BinOp {
+                                op: Op::Div,
+                                exp1: res,
+                                exp2: f,
+                            };
+                        }
+                        _ => unreachable!(),
+                    }
+                    let optoin_expr = env.borrow().search_expr(&cur_expr);
+                    if optoin_expr.is_some() {
+                        res = optoin_expr.unwrap();
+                    } else {
+                        res = env.borrow_mut().extend_expr(cur_expr);
+                    }
+                }
+                (res, env)
+            }
+        })
+    })
+}
 
-// #[test]
-// fn term_parser() {
-//     let expected_term = P::Mul {
-//         exp1: Box::new(P::Mul {
-//             exp1: Box::new(P::Pow {
-//                 exp1: Box::new(P::Var("x1".to_string())),
-//                 exp2: Box::new(P::Num(3)),
-//             }),
-//             exp2: Box::new(P::Pow {
-//                 exp1: Box::new(P::Var("y1".to_string())),
-//                 exp2: Box::new(P::Num(2)),
-//             }),
-//         }),
-//         exp2: Box::new(P::Pow {
-//             exp1: Box::new(P::Var("x1".to_string())),
-//             exp2: Box::new(P::Num(4)),
-//         }),
-//     };
+#[test]
+fn term_parser() {
+    let e = Environment::new();
+    let expected_term = Rc::new(Expr::BinOp {
+        op: Op::Mul,
+        exp1: Rc::new(Expr::BinOp {
+            op: Op::Mul,
+            exp1: Rc::new(Expr::BinOp {
+                op: Op::Pow,
+                exp1: Rc::new(Expr::Var(Var::new(0))),
+                exp2: Rc::new(Expr::Num(C::new(3, 1))),
+            }),
+            exp2: Rc::new(Expr::BinOp {
+                op: Op::Pow,
+                exp1: Rc::new(Expr::Var(Var::new(1))),
+                exp2: Rc::new(Expr::Num(C::new(2, 1))),
+            }),
+        }),
+        exp2: Rc::new(Expr::BinOp {
+            op: Op::Pow,
+            exp1: Rc::new(Expr::Var(Var::new(0))),
+            exp2: Rc::new(Expr::Num(C::new(4, 1))),
+        }),
+    });
+    assert_eq!(
+        Ok(("", &e, (expected_term, &e))),
+        term().parse("x1 ^ 3 * y1 ^ 2 * x1 ^ 4", &e)
+    );
+}
 
-//     assert_eq!(
-//         Ok(("", expected_term)),
-//         term().parse("x1 ^ 3 * y1 ^ 2 * x1 ^ 4")
-//     );
-// }
+fn expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
+    term().and_then(|(one, env)| {
+        zero_or_more(whitespace_wrap(pair(
+            whitespace_wrap(any_char.pred(|(c, _e)| *c == '+' || *c == '-')),
+            term(),
+        )))
+        .map(move |mut terms| {
+            if terms.len() == 0 {
+                (one.clone(), env)
+            } else {
+                let env = terms.last().unwrap().1 .1;
+                let optoin_expr = env.borrow().search_expr(&(*one));
+                let mut res;
+                if optoin_expr.is_some() {
+                    res = optoin_expr.unwrap();
+                } else {
+                    res = env.borrow_mut().extend_expr((*one).clone());
+                }
+                terms.reverse();
+                while let Some(((c, _e1), (t, _e2))) = terms.pop() {
+                    let cur_expr;
+                    match c {
+                        '+' => {
+                            cur_expr = Expr::BinOp {
+                                op: Op::Add,
+                                exp1: res,
+                                exp2: t,
+                            };
+                        }
+                        '-' => {
+                            cur_expr = Expr::BinOp {
+                                op: Op::Sub,
+                                exp1: res,
+                                exp2: t,
+                            };
+                        }
+                        _ => unreachable!(),
+                    }
+                    let optoin_expr = env.borrow().search_expr(&cur_expr);
+                    if optoin_expr.is_some() {
+                        res = optoin_expr.unwrap();
+                    } else {
+                        res = env.borrow_mut().extend_expr(cur_expr);
+                    }
+                }
+                (res, env)
+            }
+        })
+    })
+}
