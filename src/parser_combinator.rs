@@ -109,7 +109,7 @@ pub fn one_of<'a>(expected: Vec<&'static str>) -> impl Parser<'a, &'static str> 
     move |input: &'a str, env: &'a Env| {
         for &e in expected.iter() {
             match input.get(0..e.len()) {
-                Some(next) if next == e => return Ok((&input[expected.len()..], env, e)),
+                Some(next) if next == e => return Ok((&input[e.len()..], env, e)),
                 _ => continue,
             }
         }
