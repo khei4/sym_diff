@@ -1,4 +1,5 @@
 pub use num_rational::Rational64;
+pub use num_traits::identities::{One, Zero};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -61,9 +62,56 @@ impl Expr {
             exp2: other,
         })
     }
+
     fn new_num(n: i64) -> Rc<Expr> {
         Rc::new(Expr::Num(C::new(n, 1)))
     }
+
+    fn new_num_from_op(left: Rc<Expr>, right: Rc<Expr>, op: Op) -> Rc<Expr> {
+        match *left {
+            Expr::Num(n) => match *right {
+                Expr::Num(m) => match op {
+                    Op::Add => Rc::new(Expr::Num(n + m)),
+                    Op::Sub => Rc::new(Expr::Num(n - m)),
+                    Op::Mul => Rc::new(Expr::Num(n * m)),
+                    Op::Div => Rc::new(Expr::Num(n / m)),
+                    // Powは無理(無理数)
+                    Op::Pow => unimplemented!(),
+                },
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn is_const(&self) -> bool {
+        match self {
+            Expr::Num(_n) => true,
+            _ => false,
+        }
+    }
+
+    fn is_zero(&self) -> bool {
+        match self {
+            Expr::Num(n) => n.is_zero(),
+            _ => false,
+        }
+    }
+
+    fn is_one(&self) -> bool {
+        match self {
+            Expr::Num(n) => *n == C::one(),
+            _ => false,
+        }
+    }
+
+    fn is_minus_one(&self) -> bool {
+        match self {
+            Expr::Num(n) => *n == -C::one(),
+            _ => false,
+        }
+    }
+
     pub fn diff(&self, v: &str, e: &Env) -> Rc<Expr> {
         match e.borrow().search_var(&String::from(v)) {
             Some(v) => self.diff_internal(v, e),
@@ -144,6 +192,149 @@ impl Expr {
             Expr::Num(_n) => Expr::new_num(0),
         }
     }
+
+    pub fn reduce(&self, e: &Env) -> Rc<Expr> {
+        self.reduce_internal(e)
+    }
+    fn reduce_internal(&self, e: &Env) -> Rc<Expr> {
+        match self {
+            Expr::BinOp { op, exp1, exp2 } => {
+                let (left, right) = (exp1.reduce(e), exp2.reduce(e));
+                match op {
+                    Op::Add => {
+                        // TODO: plus + plus以外をsubにする？
+                        if left.is_zero() {
+                            right
+                        } else if right.is_zero() {
+                            left
+                        } else if left.is_const() && right.is_const() {
+                            Expr::new_num_from_op(left, right, Op::Add)
+                        } else if Rc::ptr_eq(&left, &right) {
+                            Expr::new_binop(Expr::new_num(2), left, Op::Mul)
+                        } else {
+                            Expr::new_binop(left, right, Op::Add)
+                        }
+                    }
+                    Op::Sub => {
+                        if left.is_zero() {
+                            right
+                        } else if right.is_zero() {
+                            left
+                        } else if left.is_const() && right.is_const() {
+                            Expr::new_num_from_op(left, right, Op::Sub)
+                        } else if Rc::ptr_eq(&left, &right) {
+                            Expr::new_num(0)
+                        } else {
+                            Expr::new_binop(left, right, Op::Sub)
+                        }
+                    }
+                    Op::Mul => {
+                        if left.is_zero() || right.is_zero() {
+                            Expr::new_num(0)
+                        } else if left.is_one() {
+                            right
+                        } else if left.is_minus_one() {
+                            Rc::new(Expr::Neg(right))
+                        } else if right.is_one() {
+                            left
+                        } else if right.is_minus_one() {
+                            Rc::new(Expr::Neg(left))
+                        } else if left.is_const() && right.is_const() {
+                            Expr::new_num_from_op(left, right, Op::Mul)
+                        } else if Rc::ptr_eq(&left, &right) {
+                            Expr::new_binop(Expr::new_num(2), left, Op::Pow)
+                        } else {
+                            Expr::new_binop(left, right, Op::Mul)
+                        }
+                    }
+                    Op::Div => {
+                        if left.is_zero() || right.is_zero() {
+                            panic!("zero div")
+                        } else if right.is_one() {
+                            left
+                        } else if right.is_minus_one() {
+                            Rc::new(Expr::Neg(left))
+                        } else if left.is_const() && right.is_const() {
+                            Expr::new_num_from_op(left, right, Op::Div)
+                        } else if Rc::ptr_eq(&left, &right) {
+                            Expr::new_num(1)
+                        } else {
+                            Expr::new_binop(left, right, Op::Div)
+                        }
+                    }
+                    Op::Pow => {
+                        // TODO: e log x = x
+                        if left.is_zero() {
+                            Expr::new_num(0)
+                        } else if right.is_zero() {
+                            Expr::new_num(1)
+                        } else if left.is_one() {
+                            Expr::new_num(1)
+                        } else if right.is_one() {
+                            left
+                        } else {
+                            Expr::new_binop(left, right, Op::Pow)
+                        }
+                    }
+                }
+            }
+            Expr::Sin(inexp) => {
+                let inexp = inexp.reduce(e);
+                // rationalなので, 完全な定数化は無理
+                if inexp.is_zero() {
+                    Expr::new_num(0)
+                } else {
+                    Rc::new(Expr::Sin(inexp))
+                }
+            }
+            Expr::Cos(inexp) => {
+                let inexp = inexp.reduce(e);
+                if inexp.is_zero() {
+                    Expr::new_num(1)
+                } else {
+                    Rc::new(Expr::Cos(inexp))
+                }
+            }
+            Expr::Tan(inexp) => {
+                let inexp = inexp.reduce(e);
+                if inexp.is_zero() {
+                    Expr::new_num(0)
+                } else {
+                    Rc::new(Expr::Tan(inexp))
+                }
+            }
+            Expr::Log(inexp) => {
+                // TODO: log x ^ e = e * log x ??
+                // TODO: log e = 1 ??
+                let inexp = inexp.reduce(e);
+                if inexp.is_one() {
+                    Expr::new_num(0)
+                } else {
+                    Rc::new(Expr::Log(inexp))
+                }
+            }
+            Expr::Exp(inexp) => {
+                // TODO: e log x = x
+                let inexp = inexp.reduce(e);
+                if inexp.is_zero() {
+                    Expr::new_num(1)
+                } else {
+                    Rc::new(Expr::Exp(inexp))
+                }
+            }
+            Expr::Neg(inexp) => {
+                let inexp = inexp.reduce(e);
+                match *inexp {
+                    Expr::Num(n) => Rc::new(Expr::Num(-n)),
+                    _ => Rc::new(Expr::Neg(inexp)),
+                }
+                // Rc::new(Expr::Neg(inexp))
+            }
+            Expr::Var(vt) => Rc::new(Expr::Var(*vt)),
+            Expr::Num(n) => Rc::new(Expr::Num(*n)),
+        }
+    }
+
     pub fn print(&self, e: &Env) {
         self.print_internal(e);
     }
@@ -264,6 +455,13 @@ impl Environment {
         match self.exprs.get(&e) {
             Some(ptr) => Some(ptr.clone()),
             None => None,
+        }
+    }
+
+    pub fn remove_expr(&mut self, e: &Expr) {
+        match self.exprs.remove(e) {
+            Some(_) => (),
+            None => unreachable!(),
         }
     }
 }

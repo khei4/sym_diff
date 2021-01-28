@@ -330,10 +330,10 @@ fn expr_parser() {
         Ok(("", &e, (exptcted_expr, &e))),
         expr().parse("( ( 2 + log(x) ) / tan(x) ) ^ y  + sin(y) ", &e)
     );
-    let res = expr().parse("1/tan(x)", &e);
+    let res = expr().parse("( ( 2 + log(x) ) / tan(x) ) ^ y  + sin(y)", &e);
     match res {
         Ok((_, _, (expr, env))) => {
-            expr.diff("x", env).print(&e);
+            expr.diff("y", env).reduce(&e).print(&e);
         }
         Err(_) => panic!(""),
     }
