@@ -108,32 +108,32 @@ impl Expr {
                 let right = Expr::new_binop(factor_right, exp2.diff_internal(v, e), Op::Mul);
                 Expr::new_binop(left, right, Op::Add)
             }
-            Expr::Sin(ptr_e) => Expr::new_binop(
-                Rc::new(Expr::Cos(ptr_e.clone())),
-                ptr_e.diff_internal(v, e),
+            Expr::Sin(inexp) => Expr::new_binop(
+                Rc::new(Expr::Cos(inexp.clone())),
+                inexp.diff_internal(v, e),
                 Op::Mul,
             ),
-            Expr::Cos(ptr_e) => {
+            Expr::Cos(inexp) => {
                 let inner = Expr::new_binop(
-                    Rc::new(Expr::Sin(ptr_e.clone())),
-                    ptr_e.diff_internal(v, e),
+                    Rc::new(Expr::Sin(inexp.clone())),
+                    inexp.diff_internal(v, e),
                     Op::Mul,
                 );
                 Rc::new(Expr::Neg(Rc::new(Expr::Neg(inner))))
             }
-            Expr::Tan(ptr_e) => {
+            Expr::Tan(inexp) => {
                 let factor =
-                    Expr::new_binop(Rc::new(Expr::Cos(ptr_e.clone())), Expr::new_num(2), Op::Pow);
-                Expr::new_binop(factor, ptr_e.diff_internal(v, e), Op::Mul)
+                    Expr::new_binop(Rc::new(Expr::Cos(inexp.clone())), Expr::new_num(2), Op::Pow);
+                Expr::new_binop(factor, inexp.diff_internal(v, e), Op::Mul)
             }
-            Expr::Log(ptr_e) => {
-                let factor = Expr::new_binop(Expr::new_num(1), ptr_e.clone(), Op::Div);
-                Expr::new_binop(factor, ptr_e.diff_internal(v, e), Op::Mul)
+            Expr::Log(inexp) => {
+                let factor = Expr::new_binop(Expr::new_num(1), inexp.clone(), Op::Div);
+                Expr::new_binop(factor, inexp.diff_internal(v, e), Op::Mul)
             }
-            Expr::Exp(ptr_e) => {
-                Expr::new_binop(Rc::new(self.clone()), ptr_e.diff_internal(v, e), Op::Mul)
+            Expr::Exp(inexp) => {
+                Expr::new_binop(Rc::new(self.clone()), inexp.diff_internal(v, e), Op::Mul)
             }
-            Expr::Neg(ptr_e) => Rc::new(Expr::Neg(ptr_e.diff_internal(v, e))),
+            Expr::Neg(inexp) => Rc::new(Expr::Neg(inexp.diff_internal(v, e))),
             Expr::Var(vt) => {
                 if *vt == v {
                     Expr::new_num(1)
@@ -144,7 +144,76 @@ impl Expr {
             Expr::Num(_n) => Expr::new_num(0),
         }
     }
+    pub fn print(&self, e: &Env) {
+        self.print_internal(e);
+    }
+
+    fn print_func(&self, name: &str, e: &Env) {
+        print!("{}(", name);
+        self.print_internal(e);
+        print!(")");
+    }
+
+    fn print_internal(&self, e: &Env) {
+        match self {
+            Expr::BinOp { op, exp1, exp2 } => {
+                let ops;
+                match op {
+                    Op::Add => {
+                        ops = String::from("+");
+                    }
+                    Op::Sub => {
+                        ops = String::from("-");
+                    }
+                    Op::Mul => {
+                        ops = String::from("*");
+                    }
+                    Op::Div => {
+                        ops = String::from("/");
+                    }
+                    Op::Pow => {
+                        ops = String::from("^");
+                    }
+                }
+                exp1.print_internal(e);
+                print!("{}", ops);
+                exp2.print_internal(e);
+            }
+            Expr::Sin(inexp) => {
+                inexp.print_func("sin", e);
+            }
+            Expr::Cos(inexp) => {
+                inexp.print_func("cos", e);
+            }
+            Expr::Tan(inexp) => {
+                inexp.print_func("tan", e);
+            }
+            Expr::Log(inexp) => {
+                inexp.print_func("log", e);
+            }
+            Expr::Exp(inexp) => {
+                inexp.print_func("exp", e);
+            }
+            Expr::Neg(inexp) => {
+                print!("-");
+                inexp.print_internal(e);
+            }
+            Expr::Var(vt) => {
+                print!("{}", e.borrow().vars[vt]);
+            }
+            Expr::Num(n) => {
+                print!("{}", n);
+            }
+        }
+    }
 }
+
+// impl std::fmt::Display for Expr {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         let res = String::new();
+//         write!(f, "{}", res)
+//     }
+// }
 
 // 文字列からの検索, 変数からの検索を両方早くしたいんだけど, Mapにすると重そう
 // かといってそうじゃなければ変数の数だけはかかる？

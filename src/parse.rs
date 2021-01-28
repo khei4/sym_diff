@@ -109,6 +109,16 @@ fn unary<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
     })
 }
 
+#[test]
+fn unary_parser() {
+    let e = Environment::new();
+    let exptcted_expr = Rc::new(Expr::Log(Rc::new(Expr::Var(Var::new(0)))));
+    assert_eq!(
+        Ok(("", &e, (exptcted_expr, &e))),
+        unary().parse("  - + - + log(x)", &e)
+    );
+}
+
 fn factor<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
     unary().and_then(|(one, env)| {
         zero_or_more(right(whitespace_wrap(match_literal("^")), unary())).map(move |mut unaries| {
@@ -247,7 +257,7 @@ fn term_parser() {
 }
 
 fn expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
-    term().and_then(|(one, env)| {
+    whitespace_wrap(term()).and_then(|(one, env)| {
         zero_or_more(whitespace_wrap(pair(
             whitespace_wrap(any_char.pred(|(c, _e)| *c == '+' || *c == '-')),
             term(),
@@ -291,4 +301,40 @@ fn parenthesized_expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
         match_literal("("),
         left(whitespace_wrap(expr()), match_literal(")")),
     )
+}
+
+#[test]
+fn expr_parser() {
+    let e = Environment::new();
+    let num = Rc::new(Expr::BinOp {
+        op: Op::Add,
+        exp1: Rc::new(Expr::Num(C::new(2, 1))),
+        exp2: Rc::new(Expr::Log(Rc::new(Expr::Var(Var::new(0))))),
+    });
+    let deno = Rc::new(Expr::Tan(Rc::new(Expr::Var(Var::new(0)))));
+    let expr1 = Rc::new(Expr::BinOp {
+        op: Op::Pow,
+        exp1: Rc::new(Expr::BinOp {
+            op: Op::Div,
+            exp1: num,
+            exp2: deno,
+        }),
+        exp2: Rc::new(Expr::Var(Var::new(1))),
+    });
+    let exptcted_expr = Rc::new(Expr::BinOp {
+        op: Op::Add,
+        exp1: expr1,
+        exp2: Rc::new(Expr::Sin(Rc::new(Expr::Var(Var::new(1))))),
+    });
+    assert_eq!(
+        Ok(("", &e, (exptcted_expr, &e))),
+        expr().parse("( ( 2 + log(x) ) / tan(x) ) ^ y  + sin(y) ", &e)
+    );
+    let res = expr().parse("1/tan(x)", &e);
+    match res {
+        Ok((_, _, (expr, env))) => {
+            expr.diff("x", env).print(&e);
+        }
+        Err(_) => panic!(""),
+    }
 }
