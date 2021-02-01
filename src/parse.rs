@@ -74,20 +74,48 @@ fn func<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
     )
     .map(|(name, (ex, env))| {
         let expr;
+        // match name {
+        //     "sin" => expr = Expr::Sin(ex),
+        //     "cos" => expr = Expr::Cos(ex),
+        //     "tan" => expr = Expr::Tan(ex),
+        //     "log" => expr = Expr::Log(ex),
+        //     "exp" => expr = Expr::Exp(ex),
+        //     _ => unimplemented!(),
+        // }
         match name {
-            "sin" => expr = Expr::Sin(ex),
-            "cos" => expr = Expr::Cos(ex),
-            "tan" => expr = Expr::Tan(ex),
-            "log" => expr = Expr::Log(ex),
-            "exp" => expr = Expr::Exp(ex),
+            "sin" => {
+                expr = Expr::UnOp {
+                    op: Uop::Sin,
+                    exp: ex,
+                }
+            }
+            "cos" => {
+                expr = Expr::UnOp {
+                    op: Uop::Cos,
+                    exp: ex,
+                }
+            }
+            "tan" => {
+                expr = Expr::UnOp {
+                    op: Uop::Tan,
+                    exp: ex,
+                }
+            }
+            "log" => {
+                expr = Expr::UnOp {
+                    op: Uop::Log,
+                    exp: ex,
+                }
+            }
+            "exp" => {
+                expr = Expr::UnOp {
+                    op: Uop::Exp,
+                    exp: ex,
+                }
+            }
             _ => unimplemented!(),
         }
-        // let optoin_expr = env.borrow().search_expr(&expr);
-        // if optoin_expr.is_some() {
-        //     (optoin_expr.unwrap(), env)
-        // } else {
         (env.borrow_mut().extend_expr(expr), env)
-        // }
     })
 }
 
@@ -99,7 +127,11 @@ fn unary<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
         either(func(), primary()).map(move |(p, env)| {
             let expr;
             if vec_c_r.iter().filter(|(c, _e)| *c == '-').count() % 2 != 0 {
-                expr = Expr::Neg(p);
+                // expr = Expr::Neg(p);
+                expr = Expr::UnOp {
+                    op: Uop::Neg,
+                    exp: p,
+                };
                 let p = env.borrow_mut().extend_expr(expr);
                 return (p, env);
             } else {
@@ -112,8 +144,7 @@ fn unary<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
 #[test]
 fn unary_parser() {
     let e = Environment::new();
-    let exptcted_expr = Rc::new(Expr::Log(Rc::new(Expr::Var(Var::new(0)))));
-    // Expr::new_unop(Expr::new_var_test(0), Uop::Log);
+    let exptcted_expr = Expr::new_unop(Expr::new_var_test(0), Uop::Log);
     assert_eq!(
         Ok(("", &e, (exptcted_expr, &e))),
         unary().parse("  - + - + log(x)", &e)
@@ -276,31 +307,31 @@ fn parenthesized_expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
 fn expr_parser() {
     let e = Environment::new();
 
-    let num = Rc::new(Expr::BinOp {
-        op: Bop::Add,
-        exp1: Rc::new(Expr::Num(C::new(2, 1))),
-        exp2: Rc::new(Expr::Log(Rc::new(Expr::Var(Var::new(0))))),
-    });
-    // Expr::new_binop(Expr::new_num(2), Expr::new_unop(Expr::new_var_test(0), Uop::Log) , Bop::Add)
-    let deno = Rc::new(Expr::Tan(Rc::new(Expr::Var(Var::new(0)))));
+    let num = Expr::new_binop(
+        Expr::new_num(2),
+        Expr::new_unop(Expr::new_var_test(0), Uop::Log),
+        Bop::Add,
+    );
+    let deno = Expr::new_unop(Expr::new_var_test(0), Uop::Tan);
     let expr1 = Expr::new_binop(
         Expr::new_binop(num, deno, Bop::Div),
         Expr::new_var_test(1),
         Bop::Pow,
     );
-    let exptcted_expr = Rc::new(Expr::BinOp {
-        op: Bop::Add,
-        exp1: expr1,
-        exp2: Rc::new(Expr::Sin(Rc::new(Expr::Var(Var::new(1))))),
-    });
+    let exptcted_expr = Expr::new_binop(
+        expr1,
+        Expr::new_unop(Expr::new_var_test(1), Uop::Sin),
+        Bop::Add,
+    );
     assert_eq!(
         Ok(("", &e, (exptcted_expr, &e))),
         expr().parse("( ( 2 + log(x) ) / tan(x) ) ^ y  + sin(y) ", &e)
     );
-    let res = expr().parse("( ( 2 + log(x) ) / tan(x) ) ^ y  + sin(y)", &e);
+    let res = expr().parse("1 / tan(x)", &e);
     match res {
         Ok((_, _, (expr, env))) => {
-            expr.diff("y", env).reduce(&e).print(&e);
+            expr.diff("x", env).print(&e);
+            expr.diff("x", env).reduce(&e).print(&e);
         }
         Err(_) => panic!(""),
     }
