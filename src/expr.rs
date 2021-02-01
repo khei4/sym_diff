@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 pub type C = Rational64;
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Var {
     id: usize,
 }
@@ -17,7 +17,7 @@ impl Var {
     }
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Op {
     Add,
     Sub,
@@ -36,14 +36,9 @@ pub enum Op {
 //     Exp,
 //     Neg
 // }
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+// reduceの都合でBinOpを最後に
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Expr {
-    BinOp {
-        op: Op,
-        exp1: Rc<Expr>,
-        exp2: Rc<Expr>,
-    },
     Sin(Rc<Expr>),
     Cos(Rc<Expr>),
     Tan(Rc<Expr>),
@@ -52,6 +47,11 @@ pub enum Expr {
     Neg(Rc<Expr>),
     Var(Var),
     Num(C),
+    BinOp {
+        op: Op,
+        exp1: Rc<Expr>,
+        exp2: Rc<Expr>,
+    },
 }
 
 impl Expr {
@@ -398,13 +398,6 @@ impl Expr {
         }
     }
 }
-
-// impl std::fmt::Display for Expr {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         let res = String::new();
-//         write!(f, "{}", res)
-//     }
-// }
 
 // 文字列からの検索, 変数からの検索を両方早くしたいんだけど, Mapにすると重そう
 // かといってそうじゃなければ変数の数だけはかかる？
