@@ -18,7 +18,7 @@ impl Var {
 }
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Op {
+pub enum Bop {
     Add,
     Sub,
     Mul,
@@ -26,9 +26,19 @@ pub enum Op {
     Pow,
 }
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Uop {
+    Sin,
+    Cos,
+    Tan,
+    Log,
+    Exp,
+    Neg,
+}
+
 // あとで
 // #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-// pub enum Func {
+// pub enum UnOp {
 //     Sin,
 //     Cos,
 //     Tan,
@@ -39,6 +49,10 @@ pub enum Op {
 // reduceの都合でBinOpを最後に
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Expr {
+    UnOp {
+        op: Uop,
+        exp: Rc<Expr>,
+    },
     Sin(Rc<Expr>),
     Cos(Rc<Expr>),
     Tan(Rc<Expr>),
@@ -48,14 +62,14 @@ pub enum Expr {
     Var(Var),
     Num(C),
     BinOp {
-        op: Op,
+        op: Bop,
         exp1: Rc<Expr>,
         exp2: Rc<Expr>,
     },
 }
 
 impl Expr {
-    fn new_binop(one: Rc<Expr>, other: Rc<Expr>, op: Op) -> Rc<Expr> {
+    fn new_binop(one: Rc<Expr>, other: Rc<Expr>, op: Bop) -> Rc<Expr> {
         Rc::new(Expr::BinOp {
             op,
             exp1: one,
@@ -67,16 +81,16 @@ impl Expr {
         Rc::new(Expr::Num(C::new(n, 1)))
     }
 
-    fn new_num_from_op(left: Rc<Expr>, right: Rc<Expr>, op: Op) -> Rc<Expr> {
+    fn new_num_from_op(left: Rc<Expr>, right: Rc<Expr>, op: Bop) -> Rc<Expr> {
         match *left {
             Expr::Num(n) => match *right {
                 Expr::Num(m) => match op {
-                    Op::Add => Rc::new(Expr::Num(n + m)),
-                    Op::Sub => Rc::new(Expr::Num(n - m)),
-                    Op::Mul => Rc::new(Expr::Num(n * m)),
-                    Op::Div => Rc::new(Expr::Num(n / m)),
+                    Bop::Add => Rc::new(Expr::Num(n + m)),
+                    Bop::Sub => Rc::new(Expr::Num(n - m)),
+                    Bop::Mul => Rc::new(Expr::Num(n * m)),
+                    Bop::Div => Rc::new(Expr::Num(n / m)),
                     // Powは無理(無理数)
-                    Op::Pow => unimplemented!(),
+                    Bop::Pow => unimplemented!(),
                 },
                 _ => unreachable!(),
             },
@@ -123,63 +137,68 @@ impl Expr {
     }
     fn diff_internal(&self, v: Var, e: &Env) -> Rc<Expr> {
         match self {
+            // TODO: Uop
+            Expr::UnOp { op, exp: inexp } => Expr::new_num(0),
             Expr::BinOp { op, exp1, exp2 } => {
                 let factor_left;
                 let factor_right;
                 match op {
-                    Op::Add => {
+                    Bop::Add => {
                         factor_left = Expr::new_num(1);
                         factor_right = Expr::new_num(1);
                     }
-                    Op::Sub => {
+                    Bop::Sub => {
                         factor_left = Expr::new_num(1);
                         factor_right = Expr::new_num(-1);
                     }
-                    Op::Mul => {
+                    Bop::Mul => {
                         factor_left = exp2.clone();
                         factor_right = exp1.clone();
                     }
-                    Op::Div => {
-                        factor_left = Expr::new_binop(Expr::new_num(1), exp2.clone(), Op::Div);
-                        let deno = Expr::new_binop(exp2.clone(), Expr::new_num(2), Op::Pow);
+                    Bop::Div => {
+                        factor_left = Expr::new_binop(Expr::new_num(1), exp2.clone(), Bop::Div);
+                        let deno = Expr::new_binop(exp2.clone(), Expr::new_num(2), Bop::Pow);
                         factor_right =
-                            Rc::new(Expr::Neg(Expr::new_binop(exp1.clone(), deno, Op::Div)));
+                            Rc::new(Expr::Neg(Expr::new_binop(exp1.clone(), deno, Bop::Div)));
                     }
-                    Op::Pow => {
-                        let factor1 = Expr::new_binop(exp2.clone(), exp1.clone(), Op::Div);
+                    Bop::Pow => {
+                        let factor1 = Expr::new_binop(exp2.clone(), exp1.clone(), Bop::Div);
                         let factor2 = Rc::new(Expr::Log(exp1.clone()));
-                        factor_left = Expr::new_binop(factor1, Rc::new(self.clone()), Op::Mul);
-                        factor_right = Expr::new_binop(factor2, Rc::new(self.clone()), Op::Mul);
+                        factor_left = Expr::new_binop(factor1, Rc::new(self.clone()), Bop::Mul);
+                        factor_right = Expr::new_binop(factor2, Rc::new(self.clone()), Bop::Mul);
                     }
                 }
-                let left = Expr::new_binop(factor_left, exp1.diff_internal(v, e), Op::Mul);
-                let right = Expr::new_binop(factor_right, exp2.diff_internal(v, e), Op::Mul);
-                Expr::new_binop(left, right, Op::Add)
+                let left = Expr::new_binop(factor_left, exp1.diff_internal(v, e), Bop::Mul);
+                let right = Expr::new_binop(factor_right, exp2.diff_internal(v, e), Bop::Mul);
+                Expr::new_binop(left, right, Bop::Add)
             }
             Expr::Sin(inexp) => Expr::new_binop(
                 Rc::new(Expr::Cos(inexp.clone())),
                 inexp.diff_internal(v, e),
-                Op::Mul,
+                Bop::Mul,
             ),
             Expr::Cos(inexp) => {
                 let inner = Expr::new_binop(
                     Rc::new(Expr::Sin(inexp.clone())),
                     inexp.diff_internal(v, e),
-                    Op::Mul,
+                    Bop::Mul,
                 );
                 Rc::new(Expr::Neg(Rc::new(Expr::Neg(inner))))
             }
             Expr::Tan(inexp) => {
-                let factor =
-                    Expr::new_binop(Rc::new(Expr::Cos(inexp.clone())), Expr::new_num(2), Op::Pow);
-                Expr::new_binop(factor, inexp.diff_internal(v, e), Op::Mul)
+                let factor = Expr::new_binop(
+                    Rc::new(Expr::Cos(inexp.clone())),
+                    Expr::new_num(2),
+                    Bop::Pow,
+                );
+                Expr::new_binop(factor, inexp.diff_internal(v, e), Bop::Mul)
             }
             Expr::Log(inexp) => {
-                let factor = Expr::new_binop(Expr::new_num(1), inexp.clone(), Op::Div);
-                Expr::new_binop(factor, inexp.diff_internal(v, e), Op::Mul)
+                let factor = Expr::new_binop(Expr::new_num(1), inexp.clone(), Bop::Div);
+                Expr::new_binop(factor, inexp.diff_internal(v, e), Bop::Mul)
             }
             Expr::Exp(inexp) => {
-                Expr::new_binop(Rc::new(self.clone()), inexp.diff_internal(v, e), Op::Mul)
+                Expr::new_binop(Rc::new(self.clone()), inexp.diff_internal(v, e), Bop::Mul)
             }
             Expr::Neg(inexp) => Rc::new(Expr::Neg(inexp.diff_internal(v, e))),
             Expr::Var(vt) => {
@@ -198,37 +217,39 @@ impl Expr {
     }
     fn reduce_internal(&self, e: &Env) -> Rc<Expr> {
         match self {
+            // TODO: Uop
+            Expr::UnOp { op, exp: inexp } => Expr::new_num(0),
             Expr::BinOp { op, exp1, exp2 } => {
                 let (left, right) = (exp1.reduce(e), exp2.reduce(e));
                 match op {
-                    Op::Add => {
+                    Bop::Add => {
                         // TODO: plus + plus以外をsubにする？
                         if left.is_zero() {
                             right
                         } else if right.is_zero() {
                             left
                         } else if left.is_const() && right.is_const() {
-                            Expr::new_num_from_op(left, right, Op::Add)
+                            Expr::new_num_from_op(left, right, Bop::Add)
                         } else if Rc::ptr_eq(&left, &right) {
-                            Expr::new_binop(Expr::new_num(2), left, Op::Mul)
+                            Expr::new_binop(Expr::new_num(2), left, Bop::Mul)
                         } else {
-                            Expr::new_binop(left, right, Op::Add)
+                            Expr::new_binop(left, right, Bop::Add)
                         }
                     }
-                    Op::Sub => {
+                    Bop::Sub => {
                         if left.is_zero() {
                             right
                         } else if right.is_zero() {
                             left
                         } else if left.is_const() && right.is_const() {
-                            Expr::new_num_from_op(left, right, Op::Sub)
+                            Expr::new_num_from_op(left, right, Bop::Sub)
                         } else if Rc::ptr_eq(&left, &right) {
                             Expr::new_num(0)
                         } else {
-                            Expr::new_binop(left, right, Op::Sub)
+                            Expr::new_binop(left, right, Bop::Sub)
                         }
                     }
-                    Op::Mul => {
+                    Bop::Mul => {
                         if left.is_zero() || right.is_zero() {
                             Expr::new_num(0)
                         } else if left.is_one() {
@@ -240,14 +261,14 @@ impl Expr {
                         } else if right.is_minus_one() {
                             Rc::new(Expr::Neg(left))
                         } else if left.is_const() && right.is_const() {
-                            Expr::new_num_from_op(left, right, Op::Mul)
+                            Expr::new_num_from_op(left, right, Bop::Mul)
                         } else if Rc::ptr_eq(&left, &right) {
-                            Expr::new_binop(Expr::new_num(2), left, Op::Pow)
+                            Expr::new_binop(Expr::new_num(2), left, Bop::Pow)
                         } else {
-                            Expr::new_binop(left, right, Op::Mul)
+                            Expr::new_binop(left, right, Bop::Mul)
                         }
                     }
-                    Op::Div => {
+                    Bop::Div => {
                         if left.is_zero() || right.is_zero() {
                             panic!("zero div")
                         } else if right.is_one() {
@@ -255,14 +276,14 @@ impl Expr {
                         } else if right.is_minus_one() {
                             Rc::new(Expr::Neg(left))
                         } else if left.is_const() && right.is_const() {
-                            Expr::new_num_from_op(left, right, Op::Div)
+                            Expr::new_num_from_op(left, right, Bop::Div)
                         } else if Rc::ptr_eq(&left, &right) {
                             Expr::new_num(1)
                         } else {
-                            Expr::new_binop(left, right, Op::Div)
+                            Expr::new_binop(left, right, Bop::Div)
                         }
                     }
-                    Op::Pow => {
+                    Bop::Pow => {
                         // TODO: e log x = x
                         if left.is_zero() {
                             Expr::new_num(0)
@@ -273,7 +294,7 @@ impl Expr {
                         } else if right.is_one() {
                             left
                         } else {
-                            Expr::new_binop(left, right, Op::Pow)
+                            Expr::new_binop(left, right, Bop::Pow)
                         }
                     }
                 }
@@ -347,22 +368,24 @@ impl Expr {
 
     fn print_internal(&self, e: &Env) {
         match self {
+            // TODO: Uop
+            Expr::UnOp { op, exp: inexp } => (),
             Expr::BinOp { op, exp1, exp2 } => {
                 let ops;
                 match op {
-                    Op::Add => {
+                    Bop::Add => {
                         ops = String::from("+");
                     }
-                    Op::Sub => {
+                    Bop::Sub => {
                         ops = String::from("-");
                     }
-                    Op::Mul => {
+                    Bop::Mul => {
                         ops = String::from("*");
                     }
-                    Op::Div => {
+                    Bop::Div => {
                         ops = String::from("/");
                     }
-                    Op::Pow => {
+                    Bop::Pow => {
                         ops = String::from("^");
                     }
                 }

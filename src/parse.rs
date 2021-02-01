@@ -1,4 +1,4 @@
-use super::expr::{Env, Environment, Expr, Op, Var, C};
+use super::expr::{Bop, Env, Environment, Expr, Var, C};
 use super::parser_combinator::*;
 use std::rc::Rc;
 
@@ -128,7 +128,7 @@ fn factor<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                 let env = unaries.last().unwrap().1;
                 let mut pow: Rc<Expr> = unaries.pop().unwrap().0;
                 let expr = Expr::BinOp {
-                    op: Op::Pow,
+                    op: Bop::Pow,
                     exp1: one.clone(),
                     exp2: pow,
                 };
@@ -141,7 +141,7 @@ fn factor<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                     match &mut cur_expr {
                         Expr::BinOp { exp2, .. } => {
                             pow = Rc::new(Expr::BinOp {
-                                op: Op::Pow,
+                                op: Bop::Pow,
                                 exp1: una,
                                 exp2: exp2.clone(),
                             });
@@ -160,10 +160,10 @@ fn factor<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
 fn factor_parser() {
     let e = Environment::new();
     let expected_factor1 = Rc::new(Expr::BinOp {
-        op: Op::Pow,
+        op: Bop::Pow,
         exp1: Rc::new(Expr::Var(Var::new(0))),
         exp2: Rc::new(Expr::BinOp {
-            op: Op::Pow,
+            op: Bop::Pow,
             exp1: Rc::new(Expr::Num(C::new(3, 1))),
             exp2: Rc::new(Expr::Num(C::new(2, 1))),
         }),
@@ -204,14 +204,14 @@ fn term<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                     match c {
                         '*' => {
                             cur_expr = Expr::BinOp {
-                                op: Op::Mul,
+                                op: Bop::Mul,
                                 exp1: res,
                                 exp2: f,
                             };
                         }
                         '/' => {
                             cur_expr = Expr::BinOp {
-                                op: Op::Div,
+                                op: Bop::Div,
                                 exp1: res,
                                 exp2: f,
                             };
@@ -230,22 +230,22 @@ fn term<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
 fn term_parser() {
     let e = Environment::new();
     let expected_term = Rc::new(Expr::BinOp {
-        op: Op::Mul,
+        op: Bop::Mul,
         exp1: Rc::new(Expr::BinOp {
-            op: Op::Mul,
+            op: Bop::Mul,
             exp1: Rc::new(Expr::BinOp {
-                op: Op::Pow,
+                op: Bop::Pow,
                 exp1: Rc::new(Expr::Var(Var::new(0))),
                 exp2: Rc::new(Expr::Num(C::new(3, 1))),
             }),
             exp2: Rc::new(Expr::BinOp {
-                op: Op::Pow,
+                op: Bop::Pow,
                 exp1: Rc::new(Expr::Var(Var::new(1))),
                 exp2: Rc::new(Expr::Num(C::new(2, 1))),
             }),
         }),
         exp2: Rc::new(Expr::BinOp {
-            op: Op::Pow,
+            op: Bop::Pow,
             exp1: Rc::new(Expr::Var(Var::new(0))),
             exp2: Rc::new(Expr::Num(C::new(4, 1))),
         }),
@@ -274,14 +274,14 @@ fn expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                     match c {
                         '+' => {
                             cur_expr = Expr::BinOp {
-                                op: Op::Add,
+                                op: Bop::Add,
                                 exp1: res,
                                 exp2: t,
                             };
                         }
                         '-' => {
                             cur_expr = Expr::BinOp {
-                                op: Op::Sub,
+                                op: Bop::Sub,
                                 exp1: res,
                                 exp2: t,
                             };
@@ -307,22 +307,22 @@ fn parenthesized_expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
 fn expr_parser() {
     let e = Environment::new();
     let num = Rc::new(Expr::BinOp {
-        op: Op::Add,
+        op: Bop::Add,
         exp1: Rc::new(Expr::Num(C::new(2, 1))),
         exp2: Rc::new(Expr::Log(Rc::new(Expr::Var(Var::new(0))))),
     });
     let deno = Rc::new(Expr::Tan(Rc::new(Expr::Var(Var::new(0)))));
     let expr1 = Rc::new(Expr::BinOp {
-        op: Op::Pow,
+        op: Bop::Pow,
         exp1: Rc::new(Expr::BinOp {
-            op: Op::Div,
+            op: Bop::Div,
             exp1: num,
             exp2: deno,
         }),
         exp2: Rc::new(Expr::Var(Var::new(1))),
     });
     let exptcted_expr = Rc::new(Expr::BinOp {
-        op: Op::Add,
+        op: Bop::Add,
         exp1: expr1,
         exp2: Rc::new(Expr::Sin(Rc::new(Expr::Var(Var::new(1))))),
     });
