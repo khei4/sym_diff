@@ -1,4 +1,4 @@
-use super::expr::{Bop, Env, Environment, Expr, Var, C};
+use super::expr::{Bop, Env, Environment, Expr, Uop, Var, C};
 use super::parser_combinator::*;
 use std::rc::Rc;
 
@@ -113,6 +113,7 @@ fn unary<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
 fn unary_parser() {
     let e = Environment::new();
     let exptcted_expr = Rc::new(Expr::Log(Rc::new(Expr::Var(Var::new(0)))));
+    // Expr::new_unop(Expr::new_var_test(0), Uop::Log);
     assert_eq!(
         Ok(("", &e, (exptcted_expr, &e))),
         unary().parse("  - + - + log(x)", &e)
@@ -132,7 +133,7 @@ fn factor<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                     exp1: one.clone(),
                     exp2: pow,
                 };
-                let mut res = Rc::new(Expr::Num(C::new(std::i64::MAX, 1)));
+                let mut res = Expr::new_num(std::i64::MAX);
 
                 res = env.borrow_mut().extend_expr(expr);
                 // 毎更新ごとに登録
@@ -140,11 +141,7 @@ fn factor<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                     let mut cur_expr = (*res).clone();
                     match &mut cur_expr {
                         Expr::BinOp { exp2, .. } => {
-                            pow = Rc::new(Expr::BinOp {
-                                op: Bop::Pow,
-                                exp1: una,
-                                exp2: exp2.clone(),
-                            });
+                            pow = Expr::new_binop(una, exp2.clone(), Bop::Pow);
                             *exp2 = pow;
                         }
                         _ => unreachable!(),
@@ -159,31 +156,15 @@ fn factor<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
 #[test]
 fn factor_parser() {
     let e = Environment::new();
-    let expected_factor1 = Rc::new(Expr::BinOp {
-        op: Bop::Pow,
-        exp1: Rc::new(Expr::Var(Var::new(0))),
-        exp2: Rc::new(Expr::BinOp {
-            op: Bop::Pow,
-            exp1: Rc::new(Expr::Num(C::new(3, 1))),
-            exp2: Rc::new(Expr::Num(C::new(2, 1))),
-        }),
-    });
+    let expected_factor1 = Expr::new_binop(
+        Expr::new_var_test(0),
+        Expr::new_binop(Expr::new_num(3), Expr::new_num(2), Bop::Pow),
+        Bop::Pow,
+    );
     assert_eq!(
         Ok(("", &e, (expected_factor1, &e))),
         factor().parse("x1 ^ 3 ^ 2", &e)
     );
-
-    // let expected_factor2 = Expr::Pow {
-    //     exp1: Box::new(Expr::Var(Var::new(0))),
-    //     exp2: Box::new(P::Pow {
-    //         exp1: Box::new(P::Num(3)),
-    //         exp2: Box::new(P::Pow {
-    //             exp1: Box::new(P::Num(3)),
-    //             exp2: Box::new(P::Num(2)),
-    //         }),
-    //     }),
-    // };
-    // assert_eq!(Ok(("", expected_factor2)), factor().parse("x1 ^ 3 ^ 3 ^ 2"));
 }
 
 fn term<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
@@ -229,27 +210,15 @@ fn term<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
 #[test]
 fn term_parser() {
     let e = Environment::new();
-    let expected_term = Rc::new(Expr::BinOp {
-        op: Bop::Mul,
-        exp1: Rc::new(Expr::BinOp {
-            op: Bop::Mul,
-            exp1: Rc::new(Expr::BinOp {
-                op: Bop::Pow,
-                exp1: Rc::new(Expr::Var(Var::new(0))),
-                exp2: Rc::new(Expr::Num(C::new(3, 1))),
-            }),
-            exp2: Rc::new(Expr::BinOp {
-                op: Bop::Pow,
-                exp1: Rc::new(Expr::Var(Var::new(1))),
-                exp2: Rc::new(Expr::Num(C::new(2, 1))),
-            }),
-        }),
-        exp2: Rc::new(Expr::BinOp {
-            op: Bop::Pow,
-            exp1: Rc::new(Expr::Var(Var::new(0))),
-            exp2: Rc::new(Expr::Num(C::new(4, 1))),
-        }),
-    });
+    let expected_term = Expr::new_binop(
+        Expr::new_binop(
+            Expr::new_binop(Expr::new_var_test(0), Expr::new_num(3), Bop::Pow),
+            Expr::new_binop(Expr::new_var_test(1), Expr::new_num(2), Bop::Pow),
+            Bop::Mul,
+        ),
+        Expr::new_binop(Expr::new_var_test(0), Expr::new_num(4), Bop::Pow),
+        Bop::Mul,
+    );
     assert_eq!(
         Ok(("", &e, (expected_term, &e))),
         term().parse("x1 ^ 3 * y1 ^ 2 * x1 ^ 4", &e)
@@ -306,21 +275,19 @@ fn parenthesized_expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
 #[test]
 fn expr_parser() {
     let e = Environment::new();
+
     let num = Rc::new(Expr::BinOp {
         op: Bop::Add,
         exp1: Rc::new(Expr::Num(C::new(2, 1))),
         exp2: Rc::new(Expr::Log(Rc::new(Expr::Var(Var::new(0))))),
     });
+    // Expr::new_binop(Expr::new_num(2), Expr::new_unop(Expr::new_var_test(0), Uop::Log) , Bop::Add)
     let deno = Rc::new(Expr::Tan(Rc::new(Expr::Var(Var::new(0)))));
-    let expr1 = Rc::new(Expr::BinOp {
-        op: Bop::Pow,
-        exp1: Rc::new(Expr::BinOp {
-            op: Bop::Div,
-            exp1: num,
-            exp2: deno,
-        }),
-        exp2: Rc::new(Expr::Var(Var::new(1))),
-    });
+    let expr1 = Expr::new_binop(
+        Expr::new_binop(num, deno, Bop::Div),
+        Expr::new_var_test(1),
+        Bop::Pow,
+    );
     let exptcted_expr = Rc::new(Expr::BinOp {
         op: Bop::Add,
         exp1: expr1,
