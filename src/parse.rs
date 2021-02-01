@@ -330,7 +330,6 @@ fn expr_parser() {
     let res = expr().parse("1 / tan(x)", &e);
     match res {
         Ok((_, _, (expr, env))) => {
-            expr.diff("x", env).print(&e);
             expr.diff("x", env).reduce(&e).print(&e);
         }
         Err(_) => panic!(""),
