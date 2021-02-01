@@ -349,6 +349,7 @@ impl Expr {
 
     pub fn print(&self, e: &Env) {
         self.print_internal(e);
+        println!("");
     }
 
     fn print_func(&self, name: &str, e: &Env) {
