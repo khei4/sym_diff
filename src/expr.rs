@@ -59,11 +59,11 @@ pub enum Expr {
 }
 
 impl Expr {
-    fn new_unop(one: Rc<Expr>, op: Uop) -> Rc<Expr> {
+    pub fn new_unop(one: Rc<Expr>, op: Uop) -> Rc<Expr> {
         Rc::new(Expr::UnOp { op, exp: one })
     }
 
-    fn new_binop(one: Rc<Expr>, other: Rc<Expr>, op: Bop) -> Rc<Expr> {
+    pub fn new_binop(one: Rc<Expr>, other: Rc<Expr>, op: Bop) -> Rc<Expr> {
         Rc::new(Expr::BinOp {
             op,
             exp1: one,
@@ -71,8 +71,12 @@ impl Expr {
         })
     }
 
-    fn new_num(n: i64) -> Rc<Expr> {
+    pub fn new_num(n: i64) -> Rc<Expr> {
         Rc::new(Expr::Num(C::new(n, 1)))
+    }
+
+    pub fn new_var_test(n: usize) -> Rc<Expr> {
+        Rc::new(Expr::Var(Var::new(n)))
     }
 
     fn new_num_from_op(left: Rc<Expr>, right: Rc<Expr>, op: Bop) -> Rc<Expr> {
@@ -131,14 +135,13 @@ impl Expr {
     }
     fn diff_internal(&self, v: Var, e: &Env) -> Rc<Expr> {
         match self {
-            // TODO: Uop
             Expr::UnOp { op, exp: inexp } => match op {
-                Sin => Expr::new_binop(
+                Uop::Sin => Expr::new_binop(
                     Expr::new_unop(inexp.clone(), Uop::Cos),
                     inexp.diff_internal(v, e),
                     Bop::Mul,
                 ),
-                Cos => {
+                Uop::Cos => {
                     let inner = Expr::new_binop(
                         Expr::new_unop(inexp.clone(), Uop::Sin),
                         inexp.diff_internal(v, e),
@@ -146,20 +149,22 @@ impl Expr {
                     );
                     Expr::new_unop(inner, Uop::Neg)
                 }
-                Tan => {
+                Uop::Tan => {
                     let factor = Expr::new_binop(
                         Expr::new_unop(inexp.clone(), Uop::Cos),
                         Expr::new_num(2),
                         Bop::Pow,
                     );
-                    Expr::new_binop(factor, inexp.diff_internal(v, e), Bop::Mul)
+                    Expr::new_binop(inexp.diff_internal(v, e), factor, Bop::Div)
                 }
-                Log => {
+                Uop::Log => {
                     let factor = Expr::new_binop(Expr::new_num(1), inexp.clone(), Bop::Div);
                     Expr::new_binop(factor, inexp.diff_internal(v, e), Bop::Mul)
                 }
-                Exp => Expr::new_binop(Rc::new(self.clone()), inexp.diff_internal(v, e), Bop::Mul),
-                Neg => Expr::new_unop(inexp.diff_internal(v, e), Uop::Neg),
+                Uop::Exp => {
+                    Expr::new_binop(Rc::new(self.clone()), inexp.diff_internal(v, e), Bop::Mul)
+                }
+                Uop::Neg => Expr::new_unop(inexp.diff_internal(v, e), Uop::Neg),
             },
             Expr::BinOp { op, exp1, exp2 } => {
                 let factor_left;
@@ -240,57 +245,56 @@ impl Expr {
     fn reduce_internal(&self, e: &Env) -> Rc<Expr> {
         match self {
             Expr::UnOp { op, exp: inexp } => match op {
-                Sin => {
+                Uop::Sin => {
                     let inexp = inexp.reduce(e);
                     // rationalなので, 完全な定数化は無理
                     if inexp.is_zero() {
                         Expr::new_num(0)
                     } else {
-                        Rc::new(Expr::Sin(inexp))
+                        Expr::new_unop(inexp, Uop::Sin)
                     }
                 }
-                Cos => {
+                Uop::Cos => {
                     let inexp = inexp.reduce(e);
                     if inexp.is_zero() {
                         Expr::new_num(1)
                     } else {
-                        Rc::new(Expr::Cos(inexp))
+                        Expr::new_unop(inexp, Uop::Cos)
                     }
                 }
-                Tan => {
+                Uop::Tan => {
                     let inexp = inexp.reduce(e);
                     if inexp.is_zero() {
                         Expr::new_num(0)
                     } else {
-                        Rc::new(Expr::Tan(inexp))
+                        Expr::new_unop(inexp, Uop::Tan)
                     }
                 }
-                Log => {
+                Uop::Log => {
                     // TODO: log x ^ e = e * log x ??
                     // TODO: log e = 1 ??
                     let inexp = inexp.reduce(e);
                     if inexp.is_one() {
                         Expr::new_num(0)
                     } else {
-                        Rc::new(Expr::Log(inexp))
+                        Expr::new_unop(inexp, Uop::Log)
                     }
                 }
-                Exp => {
+                Uop::Exp => {
                     // TODO: e log x = x
                     let inexp = inexp.reduce(e);
                     if inexp.is_zero() {
                         Expr::new_num(1)
                     } else {
-                        Rc::new(Expr::Exp(inexp))
+                        Expr::new_unop(inexp, Uop::Exp)
                     }
                 }
-                Neg => {
+                Uop::Neg => {
                     let inexp = inexp.reduce(e);
                     match *inexp {
                         Expr::Num(n) => Rc::new(Expr::Num(-n)),
-                        _ => Rc::new(Expr::Neg(inexp)),
+                        _ => Expr::new_unop(inexp, Uop::Neg),
                     }
-                    // Rc::new(Expr::Neg(inexp))
                 }
             },
             Expr::BinOp { op, exp1, exp2 } => {
@@ -443,22 +447,22 @@ impl Expr {
     fn print_internal(&self, e: &Env) {
         match self {
             Expr::UnOp { op, exp: inexp } => match op {
-                Sin => {
+                Uop::Sin => {
                     inexp.print_func("sin", e);
                 }
-                Cos => {
+                Uop::Cos => {
                     inexp.print_func("cos", e);
                 }
-                Tan => {
+                Uop::Tan => {
                     inexp.print_func("tan", e);
                 }
-                Log => {
+                Uop::Log => {
                     inexp.print_func("log", e);
                 }
-                Exp => {
+                Uop::Exp => {
                     inexp.print_func("exp", e);
                 }
-                Neg => {
+                Uop::Neg => {
                     print!("-");
                     inexp.print_internal(e);
                 }
