@@ -53,27 +53,32 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn new_unop(one: Rc<Expr>, op: Uop) -> Rc<Expr> {
-        Rc::new(Expr::UnOp { op, exp: one })
+    pub fn new_unop(op: Uop, one: Rc<Expr>, env: &Env) -> Rc<Expr> {
+        let e = Expr::UnOp { op, exp: one };
+        env.borrow_mut().extend_expr(e)
     }
 
-    pub fn new_binop(one: Rc<Expr>, other: Rc<Expr>, op: Bop) -> Rc<Expr> {
-        Rc::new(Expr::BinOp {
+    pub fn new_binop(op: Bop, one: Rc<Expr>, other: Rc<Expr>, env: &Env) -> Rc<Expr> {
+        let e = Expr::BinOp {
             op,
             exp1: one,
             exp2: other,
-        })
+        };
+        env.borrow_mut().extend_expr(e)
     }
 
-    pub fn new_num(n: i64) -> Rc<Expr> {
-        Rc::new(Expr::Num(C::new(n, 1)))
+    pub fn new_num(n: i64, env: &Env) -> Rc<Expr> {
+        let e = Expr::Num(C::new(n, 1));
+        let p = env.borrow_mut().extend_expr(e);
+        p
     }
 
-    pub fn new_var_test(n: usize) -> Rc<Expr> {
-        Rc::new(Expr::Var(Var::new(n)))
+    pub fn new_var(n: usize, env: &Env) -> Rc<Expr> {
+        let e = Expr::Var(Var::new(n));
+        env.borrow_mut().extend_expr(e)
     }
 
-    fn new_num_from_op(left: Rc<Expr>, right: Rc<Expr>, op: Bop) -> Rc<Expr> {
+    fn new_num_from_op(op: Bop, left: Rc<Expr>, right: Rc<Expr>, env: &Env) -> Rc<Expr> {
         match *left {
             Expr::Num(n) => match *right {
                 Expr::Num(m) => match op {
@@ -88,6 +93,11 @@ impl Expr {
             },
             _ => unreachable!(),
         }
+    }
+
+    fn new_num_from_rat(c: C, env: &Env) -> Rc<Expr> {
+        let e = Expr::Num(c);
+        env.borrow_mut().extend_expr(e)
     }
 
     fn is_const(&self) -> bool {
@@ -119,7 +129,8 @@ impl Expr {
     }
 
     pub fn diff(&self, v: &str, e: &Env) -> Rc<Expr> {
-        match e.borrow().search_var(&String::from(v)) {
+        let var = e.borrow().search_var(&String::from(v));
+        match var {
             Some(v) => self.diff_internal(v, e),
             None => {
                 // unreachable!();
@@ -131,76 +142,96 @@ impl Expr {
         match self {
             Expr::UnOp { op, exp: inexp } => match op {
                 Uop::Sin => Expr::new_binop(
-                    Expr::new_unop(inexp.clone(), Uop::Cos),
-                    inexp.diff_internal(v, e),
                     Bop::Mul,
+                    Expr::new_unop(Uop::Cos, inexp.clone(), e),
+                    inexp.diff_internal(v, e),
+                    e,
                 ),
                 Uop::Cos => {
                     let inner = Expr::new_binop(
-                        Expr::new_unop(inexp.clone(), Uop::Sin),
-                        inexp.diff_internal(v, e),
                         Bop::Mul,
+                        Expr::new_unop(Uop::Sin, inexp.clone(), e),
+                        inexp.diff_internal(v, e),
+                        e,
                     );
-                    Expr::new_unop(inner, Uop::Neg)
+                    Expr::new_unop(Uop::Neg, inner, e)
                 }
                 Uop::Tan => {
                     let factor = Expr::new_binop(
-                        Expr::new_unop(inexp.clone(), Uop::Cos),
-                        Expr::new_num(2),
                         Bop::Pow,
+                        Expr::new_unop(Uop::Cos, inexp.clone(), e),
+                        Expr::new_num(2, e),
+                        e,
                     );
-                    Expr::new_binop(inexp.diff_internal(v, e), factor, Bop::Div)
+                    Expr::new_binop(Bop::Div, inexp.diff_internal(v, e), factor, e)
                 }
                 Uop::Log => {
-                    let factor = Expr::new_binop(Expr::new_num(1), inexp.clone(), Bop::Div);
-                    Expr::new_binop(factor, inexp.diff_internal(v, e), Bop::Mul)
+                    let factor = Expr::new_binop(Bop::Div, Expr::new_num(1, e), inexp.clone(), e);
+                    Expr::new_binop(Bop::Mul, factor, inexp.diff_internal(v, e), e)
                 }
-                Uop::Exp => {
-                    Expr::new_binop(Rc::new(self.clone()), inexp.diff_internal(v, e), Bop::Mul)
-                }
-                Uop::Neg => Expr::new_unop(inexp.diff_internal(v, e), Uop::Neg),
+                Uop::Exp => Expr::new_binop(
+                    Bop::Mul,
+                    e.borrow_mut().extend_expr(self.clone()),
+                    inexp.diff_internal(v, e),
+                    e,
+                ),
+                Uop::Neg => Expr::new_unop(Uop::Neg, inexp.diff_internal(v, e), e),
             },
             Expr::BinOp { op, exp1, exp2 } => {
                 let factor_left;
                 let factor_right;
                 match op {
                     Bop::Add => {
-                        factor_left = Expr::new_num(1);
-                        factor_right = Expr::new_num(1);
+                        factor_left = Expr::new_num(1, e);
+                        factor_right = Expr::new_num(1, e);
                     }
                     Bop::Sub => {
-                        factor_left = Expr::new_num(1);
-                        factor_right = Expr::new_num(-1);
+                        factor_left = Expr::new_num(1, e);
+                        factor_right = Expr::new_num(-1, e);
                     }
                     Bop::Mul => {
                         factor_left = exp2.clone();
                         factor_right = exp1.clone();
                     }
                     Bop::Div => {
-                        factor_left = Expr::new_binop(Expr::new_num(1), exp2.clone(), Bop::Div);
-                        let deno = Expr::new_binop(exp2.clone(), Expr::new_num(2), Bop::Pow);
-                        factor_right =
-                            Expr::new_unop(Expr::new_binop(exp1.clone(), deno, Bop::Div), Uop::Neg);
+                        factor_left =
+                            Expr::new_binop(Bop::Div, Expr::new_num(1, e), exp2.clone(), e);
+                        let deno = Expr::new_binop(Bop::Pow, exp2.clone(), Expr::new_num(2, e), e);
+                        factor_right = Expr::new_unop(
+                            Uop::Neg,
+                            Expr::new_binop(Bop::Div, exp1.clone(), deno, e),
+                            e,
+                        );
                     }
                     Bop::Pow => {
-                        let factor1 = Expr::new_binop(exp2.clone(), exp1.clone(), Bop::Div);
-                        let factor2 = Expr::new_unop(exp1.clone(), Uop::Log);
-                        factor_left = Expr::new_binop(factor1, Rc::new(self.clone()), Bop::Mul);
-                        factor_right = Expr::new_binop(factor2, Rc::new(self.clone()), Bop::Mul);
+                        let factor1 = Expr::new_binop(Bop::Div, exp2.clone(), exp1.clone(), e);
+                        let factor2 = Expr::new_unop(Uop::Log, exp1.clone(), e);
+                        factor_left = Expr::new_binop(
+                            Bop::Mul,
+                            factor1,
+                            e.borrow_mut().extend_expr(self.clone()),
+                            e,
+                        );
+                        factor_right = Expr::new_binop(
+                            Bop::Mul,
+                            factor2,
+                            e.borrow_mut().extend_expr(self.clone()),
+                            e,
+                        );
                     }
                 }
-                let left = Expr::new_binop(factor_left, exp1.diff_internal(v, e), Bop::Mul);
-                let right = Expr::new_binop(factor_right, exp2.diff_internal(v, e), Bop::Mul);
-                Expr::new_binop(left, right, Bop::Add)
+                let left = Expr::new_binop(Bop::Mul, factor_left, exp1.diff_internal(v, e), e);
+                let right = Expr::new_binop(Bop::Mul, factor_right, exp2.diff_internal(v, e), e);
+                Expr::new_binop(Bop::Add, left, right, e)
             }
             Expr::Var(vt) => {
                 if *vt == v {
-                    Expr::new_num(1)
+                    Expr::new_num(1, e)
                 } else {
-                    Expr::new_num(0)
+                    Expr::new_num(0, e)
                 }
             }
-            Expr::Num(_n) => Expr::new_num(0),
+            Expr::Num(_n) => Expr::new_num(0, e),
         }
     }
 
@@ -214,25 +245,25 @@ impl Expr {
                     let inexp = inexp.reduce(e);
                     // rationalなので, 完全な定数化は無理
                     if inexp.is_zero() {
-                        Expr::new_num(0)
+                        Expr::new_num(0, e)
                     } else {
-                        Expr::new_unop(inexp, Uop::Sin)
+                        Expr::new_unop(Uop::Sin, inexp, e)
                     }
                 }
                 Uop::Cos => {
                     let inexp = inexp.reduce(e);
                     if inexp.is_zero() {
-                        Expr::new_num(1)
+                        Expr::new_num(1, e)
                     } else {
-                        Expr::new_unop(inexp, Uop::Cos)
+                        Expr::new_unop(Uop::Cos, inexp, e)
                     }
                 }
                 Uop::Tan => {
                     let inexp = inexp.reduce(e);
                     if inexp.is_zero() {
-                        Expr::new_num(0)
+                        Expr::new_num(0, e)
                     } else {
-                        Expr::new_unop(inexp, Uop::Tan)
+                        Expr::new_unop(Uop::Tan, inexp, e)
                     }
                 }
                 Uop::Log => {
@@ -240,25 +271,25 @@ impl Expr {
                     // TODO: log e = 1 ??
                     let inexp = inexp.reduce(e);
                     if inexp.is_one() {
-                        Expr::new_num(0)
+                        Expr::new_num(0, e)
                     } else {
-                        Expr::new_unop(inexp, Uop::Log)
+                        Expr::new_unop(Uop::Log, inexp, e)
                     }
                 }
                 Uop::Exp => {
                     // TODO: e log x = x
                     let inexp = inexp.reduce(e);
                     if inexp.is_zero() {
-                        Expr::new_num(1)
+                        Expr::new_num(1, e)
                     } else {
-                        Expr::new_unop(inexp, Uop::Exp)
+                        Expr::new_unop(Uop::Exp, inexp, e)
                     }
                 }
                 Uop::Neg => {
                     let inexp = inexp.reduce(e);
                     match *inexp {
                         Expr::Num(n) => Rc::new(Expr::Num(-n)),
-                        _ => Expr::new_unop(inexp, Uop::Neg),
+                        _ => Expr::new_unop(Uop::Neg, inexp, e),
                     }
                 }
             },
@@ -272,11 +303,11 @@ impl Expr {
                         } else if right.is_zero() {
                             left
                         } else if left.is_const() && right.is_const() {
-                            Expr::new_num_from_op(left, right, Bop::Add)
+                            Expr::new_num_from_op(Bop::Add, left, right, e)
                         } else if Rc::ptr_eq(&left, &right) {
-                            Expr::new_binop(Expr::new_num(2), left, Bop::Mul)
+                            Expr::new_binop(Bop::Mul, Expr::new_num(2, e), left, e)
                         } else {
-                            Expr::new_binop(left, right, Bop::Add)
+                            Expr::new_binop(Bop::Add, left, right, e)
                         }
                     }
                     Bop::Sub => {
@@ -285,30 +316,30 @@ impl Expr {
                         } else if right.is_zero() {
                             left
                         } else if left.is_const() && right.is_const() {
-                            Expr::new_num_from_op(left, right, Bop::Sub)
+                            Expr::new_num_from_op(Bop::Sub, left, right, e)
                         } else if Rc::ptr_eq(&left, &right) {
-                            Expr::new_num(0)
+                            Expr::new_num(0, e)
                         } else {
-                            Expr::new_binop(left, right, Bop::Sub)
+                            Expr::new_binop(Bop::Sub, left, right, e)
                         }
                     }
                     Bop::Mul => {
                         if left.is_zero() || right.is_zero() {
-                            Expr::new_num(0)
+                            Expr::new_num(0, e)
                         } else if left.is_one() {
                             right
                         } else if left.is_minus_one() {
-                            Expr::new_unop(right, Uop::Neg)
+                            Expr::new_unop(Uop::Neg, right, e)
                         } else if right.is_one() {
                             left
                         } else if right.is_minus_one() {
-                            Expr::new_unop(left, Uop::Neg)
+                            Expr::new_unop(Uop::Neg, left, e)
                         } else if left.is_const() && right.is_const() {
-                            Expr::new_num_from_op(left, right, Bop::Mul)
+                            Expr::new_num_from_op(Bop::Mul, left, right, e)
                         } else if Rc::ptr_eq(&left, &right) {
-                            Expr::new_binop(Expr::new_num(2), left, Bop::Pow)
+                            Expr::new_binop(Bop::Pow, Expr::new_num(2, e), left, e)
                         } else {
-                            Expr::new_binop(left, right, Bop::Mul)
+                            Expr::new_binop(Bop::Mul, left, right, e)
                         }
                     }
                     Bop::Div => {
@@ -317,33 +348,33 @@ impl Expr {
                         } else if right.is_one() {
                             left
                         } else if right.is_minus_one() {
-                            Expr::new_unop(left, Uop::Neg)
+                            Expr::new_unop(Uop::Neg, left, e)
                         } else if left.is_const() && right.is_const() {
-                            Expr::new_num_from_op(left, right, Bop::Div)
+                            Expr::new_num_from_op(Bop::Div, left, right, e)
                         } else if Rc::ptr_eq(&left, &right) {
-                            Expr::new_num(1)
+                            Expr::new_num(1, e)
                         } else {
-                            Expr::new_binop(left, right, Bop::Div)
+                            Expr::new_binop(Bop::Div, left, right, e)
                         }
                     }
                     Bop::Pow => {
                         // TODO: e log x = x
                         if left.is_zero() {
-                            Expr::new_num(0)
+                            Expr::new_num(0, e)
                         } else if right.is_zero() {
-                            Expr::new_num(1)
+                            Expr::new_num(1, e)
                         } else if left.is_one() {
-                            Expr::new_num(1)
+                            Expr::new_num(1, e)
                         } else if right.is_one() {
                             left
                         } else {
-                            Expr::new_binop(left, right, Bop::Pow)
+                            Expr::new_binop(Bop::Pow, left, right, e)
                         }
                     }
                 }
             }
-            Expr::Var(vt) => Rc::new(Expr::Var(*vt)),
-            Expr::Num(n) => Rc::new(Expr::Num(*n)),
+            Expr::Var(vt) => Expr::new_var(vt.id, e),
+            Expr::Num(n) => Expr::new_num_from_rat(*n, e),
         }
     }
 
@@ -470,6 +501,26 @@ impl Environment {
         match self.exprs.remove(e) {
             Some(_) => (),
             None => unreachable!(),
+        }
+    }
+
+    pub fn clean(&mut self) {
+        let mut remove_list = std::collections::HashSet::new();
+        let mut change = true;
+        while change {
+            change = false;
+            {
+                for (exp, expp) in &self.exprs {
+                    if Rc::strong_count(&expp) == 1 {
+                        remove_list.insert(exp.clone());
+                    }
+                }
+            }
+            for rexpr in &remove_list {
+                self.exprs.remove(rexpr);
+                change = true;
+            }
+            remove_list = std::collections::HashSet::new();
         }
     }
 }
