@@ -1,4 +1,4 @@
-use super::expr::{Env, Environment, Expr};
+use super::expr::{Env, Environment, Expr, Var};
 use super::parse::*;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -16,14 +16,13 @@ let reverse_graph: Vec<Vec<Edge>> = vec![vec![]; nodesize];
 struct Deriv {
     size: usize,
     root: usize,
-    leafs: HashSet<usize>,
+    leafs: HashMap<usize, Option<Var>>,
     graph: Vec<Vec<Edge>>,
     reverse_graph: Vec<Vec<Edge>>,
+    diff_by: Var,
 }
 
 impl Deriv {
-    // まずは1変数の微分グラフを出す.
-    // Exprから微分をする
     fn new(expr: Rc<Expr>, e: &Env, v: &str) -> Self {
         let mut m = HashMap::new();
         let expr = expr.reduce(e);
@@ -31,7 +30,7 @@ impl Deriv {
         println!("{:?}", m);
         let size = m.len();
         let (mut graph, mut reverse_graph) = (vec![vec![]; size], vec![vec![]; size]);
-        let mut leafs = vec![];
+        let mut leafs = HashMap::new();
         let mut memo = HashSet::new();
         Deriv::construct(
             &(*expr),
@@ -47,9 +46,10 @@ impl Deriv {
         Deriv {
             size,
             root: size - 1,
-            leafs: leafs.into_iter().collect(),
+            leafs: leafs,
             graph,
             reverse_graph,
+            diff_by: e.borrow_mut().extend_var(String::from(v)),
         }
     }
     fn construct(
@@ -59,7 +59,7 @@ impl Deriv {
         postids: &HashMap<Expr, usize>,
         graph: &mut Vec<Vec<Edge>>,
         reverse_graph: &mut Vec<Vec<Edge>>,
-        leafs: &mut Vec<usize>,
+        leafs: &mut HashMap<usize, Option<Var>>,
         memo: &mut HashSet<(usize, usize)>,
     ) {
         // 子のIndexをふる
@@ -125,9 +125,8 @@ impl Deriv {
                 reverse_graph[child1_id].push(redge1);
                 reverse_graph[child2_id].push(redge2);
             }
-            // 変数と定数でサイズが変わるの考えてなかったな...
-            // まあでも実際こうするしかないような気もする.一回0ありでやって, 微分木から変換するのも作る
-            _ => leafs.push(postids[expr]),
+            Expr::Var(v) => drop(leafs.insert(postids[expr], Some(*v))),
+            Expr::Num(_) => drop(leafs.insert(postids[expr], None)),
         }
     }
 
@@ -189,13 +188,12 @@ impl Deriv {
         for n in 0..self.size {
             pdoms[n].insert(n);
         }
-        let leafs: HashSet<usize> = self.leafs.clone().iter().map(|l| *l).collect();
 
         let mut changed = true;
         while changed {
             changed = false;
             for u in 0..self.size {
-                if leafs.contains(&u) {
+                if self.leafs.contains_key(&u) {
                     continue;
                 }
                 let mut new_set = HashSet::from_iter(0..self.size);
@@ -278,7 +276,7 @@ impl Deriv {
             if cur == goal {
                 paths.push(path);
                 continue;
-            } else if self.leafs.contains(&cur) {
+            } else if self.leafs.contains_key(&cur) {
                 continue;
             } else {
                 for Edge { to: next, .. } in &self.graph[cur] {
@@ -299,7 +297,6 @@ impl Deriv {
                 // edgeをみつける
                 for Edge { to: v, exp } in &self.graph[cur] {
                     if *v == next {
-                        println!("edge{:?}", (cur, next));
                         temp_expr = Expr::new_binop(Bop::Mul, temp_expr, exp.clone(), env);
                         // v < cur
                         // fsub.0 is dominator
@@ -347,12 +344,51 @@ impl Deriv {
         self.reverse_graph[goal].push(new_redge);
         // Edgeを消す, 足す
     }
+
+    fn eval(&mut self, vars: &str, vals: &Vec<f64>, env: &Env) -> f64 {
+        let mut varvec: Vec<Var>;
+        match variables().parse(vars, env) {
+            Ok((_, _, vars)) => {
+                varvec = vars
+                    .iter()
+                    .map(|v| match **v {
+                        Expr::Var(vv) => vv,
+                        _ => unreachable!(),
+                    })
+                    .collect();
+            }
+            Err(_) => panic!("failed to parse variables"),
+        }
+        varvec.sort();
+        self.eval_internal(&varvec, vals)
+    }
+    fn eval_internal(&mut self, vars: &Vec<Var>, vals: &Vec<f64>) -> f64 {
+        let mut que = vec![(self.root, 1.)];
+        let mut paths: Vec<f64> = vec![];
+        while 0 < que.len() {
+            let (cur, path) = que.pop().unwrap();
+            if self.leafs.contains_key(&cur) {
+                match self.leafs[&cur] {
+                    Some(v) if v == self.diff_by => {
+                        paths.push(path);
+                        break;
+                    }
+                    _ => continue,
+                }
+            } else {
+                for Edge { to: next, exp } in &self.graph[cur] {
+                    que.push((*next, path * exp.eval_internal(vars, vals)));
+                }
+            }
+        }
+        paths.iter().sum()
+    }
 }
+
 #[test]
 fn create_diff_graph() {
     let e = &Environment::new();
-    // let res = expr().parse("log(x) * cos(x) * cos(cos(x))", e);
-    let res = expr().parse("sin(cos(x)) * cos(cos(x))", e);
+    let res = expr().parse("x * z / (x + y)", e);
     match res {
         Ok((_, _, (expr, env))) => {
             expr.diff("x", env).reduce(env).print(env);
@@ -364,26 +400,14 @@ fn create_diff_graph() {
                     e.exp.print(env);
                 }
             }
-            println!("rev");
-            for (i, l) in d.reverse_graph.iter().enumerate() {
-                for e in l {
-                    println!("{} -> {}", i, e.to);
-                    e.exp.print(env);
-                }
-            }
             let doms = d.dom_rel();
             let pdoms = d.pdom_rel();
             let factor_subgraphs = d.factor_subgraphs(&doms, &pdoms);
             for fsub in factor_subgraphs {
                 d.shrink(fsub, &doms, &pdoms, env);
             }
+            println!("shrinked");
             for (i, l) in d.graph.iter().enumerate() {
-                for e in l {
-                    println!("{} -> {}", i, e.to);
-                    e.exp.print(env);
-                }
-            }
-            for (i, l) in d.reverse_graph.iter().enumerate() {
                 for e in l {
                     println!("{} -> {}", i, e.to);
                     e.exp.print(env);

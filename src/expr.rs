@@ -1,9 +1,9 @@
+use super::parse::*;
 pub use num_rational::Rational64;
 pub use num_traits::identities::{One, Zero};
 pub use std::cell::RefCell;
 pub use std::collections::HashMap;
 pub use std::rc::Rc;
-
 pub type C = Rational64;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -553,9 +553,11 @@ impl Expr {
                         ops = String::from("^");
                     }
                 }
+                print!("(");
                 exp1.print_internal(e);
                 print!("{}", ops);
                 exp2.print_internal(e);
+                print!(")");
             }
             Expr::Var(vt) => {
                 print!("{}", e.borrow().vars[vt]);
@@ -563,6 +565,50 @@ impl Expr {
             Expr::Num(n) => {
                 print!("{}", n);
             }
+        }
+    }
+
+    pub fn eval(&self, vars: &str, vals: &Vec<f64>, e: &Env) -> f64 {
+        let mut varvec: Vec<Var>;
+        match variables().parse(vars, e) {
+            Ok((_, _, vars)) => {
+                varvec = vars
+                    .iter()
+                    .map(|v| match **v {
+                        Expr::Var(vv) => vv,
+                        _ => unreachable!(),
+                    })
+                    .collect();
+            }
+            Err(_) => panic!("failed to parse variables"),
+        }
+        varvec.sort();
+        self.eval_internal(&varvec, vals)
+    }
+    pub fn eval_internal(&self, vars: &Vec<Var>, vals: &Vec<f64>) -> f64 {
+        match self {
+            Expr::UnOp { op, exp } => match op {
+                Uop::Sin => exp.eval_internal(vars, vals).sin(),
+                Uop::Cos => exp.eval_internal(vars, vals).cos(),
+                Uop::Tan => exp.eval_internal(vars, vals).tan(),
+                Uop::Log => exp.eval_internal(vars, vals).log(std::f64::consts::E),
+                Uop::Exp => std::f64::consts::E.powf(exp.eval_internal(vars, vals)),
+                Uop::Neg => -exp.eval_internal(vars, vals),
+            },
+            Expr::BinOp { op, exp1, exp2 } => match op {
+                Bop::Add => exp1.eval_internal(vars, vals) + exp2.eval_internal(vars, vals),
+                Bop::Sub => exp1.eval_internal(vars, vals) - exp2.eval_internal(vars, vals),
+                Bop::Mul => exp1.eval_internal(vars, vals) * exp2.eval_internal(vars, vals),
+                Bop::Div => exp1.eval_internal(vars, vals) / exp2.eval_internal(vars, vals),
+                Bop::Pow => exp1
+                    .eval_internal(vars, vals)
+                    .powf(exp2.eval_internal(vars, vals)),
+            },
+            Expr::Var(vt) => match vars.binary_search(&vt) {
+                Ok(i) => vals[i],
+                Err(_) => panic!("var {} is not specified", vt.id),
+            },
+            Expr::Num(n) => *n.numer() as f64 / *n.denom() as f64,
         }
     }
 }
