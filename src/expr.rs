@@ -234,18 +234,9 @@ impl Expr {
                     Bop::Pow => {
                         let factor1 = Expr::new_binop(Bop::Div, exp2.clone(), exp1.clone(), e);
                         let factor2 = Expr::new_unop(Uop::Log, exp1.clone(), e);
-                        factor_left = Expr::new_binop(
-                            Bop::Mul,
-                            factor1,
-                            e.borrow_mut().extend_expr(self.clone()),
-                            e,
-                        );
-                        factor_right = Expr::new_binop(
-                            Bop::Mul,
-                            factor2,
-                            e.borrow_mut().extend_expr(self.clone()),
-                            e,
-                        );
+                        let s = e.borrow_mut().extend_expr(self.clone());
+                        factor_left = Expr::new_binop(Bop::Mul, factor1, s.clone(), e);
+                        factor_right = Expr::new_binop(Bop::Mul, factor2, s, e);
                     }
                 }
                 vec![factor_left, factor_right]
@@ -328,18 +319,9 @@ impl Expr {
                     Bop::Pow => {
                         let factor1 = Expr::new_binop(Bop::Div, exp2.clone(), exp1.clone(), e);
                         let factor2 = Expr::new_unop(Uop::Log, exp1.clone(), e);
-                        factor_left = Expr::new_binop(
-                            Bop::Mul,
-                            factor1,
-                            e.borrow_mut().extend_expr(self.clone()),
-                            e,
-                        );
-                        factor_right = Expr::new_binop(
-                            Bop::Mul,
-                            factor2,
-                            e.borrow_mut().extend_expr(self.clone()),
-                            e,
-                        );
+                        let s = e.borrow_mut().extend_expr(self.clone());
+                        factor_left = Expr::new_binop(Bop::Mul, factor1, s.clone(), e);
+                        factor_right = Expr::new_binop(Bop::Mul, factor2, s, e);
                     }
                 }
                 let left = Expr::new_binop(Bop::Mul, factor_left, exp1.diff_internal(v, e), e);
@@ -634,10 +616,15 @@ impl Environment {
     }
 
     pub fn extend_var(&mut self, var_str: String) -> Var {
-        let v = Var::new(self.vars.len());
-        self.vars.insert(v, var_str.clone());
-        self.rev_vars.insert(var_str, v);
-        v
+        match self.search_var(&var_str) {
+            Some(v) => v,
+            None => {
+                let v = Var::new(self.vars.len());
+                self.vars.insert(v, var_str.clone());
+                self.rev_vars.insert(var_str, v);
+                v
+            }
+        }
     }
 
     pub fn search_var(&self, var_str: &String) -> Option<Var> {
