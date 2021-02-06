@@ -1,8 +1,8 @@
 pub use num_rational::Rational64;
 pub use num_traits::identities::{One, Zero};
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
+pub use std::cell::RefCell;
+pub use std::collections::HashMap;
+pub use std::rc::Rc;
 
 pub type C = Rational64;
 
@@ -127,6 +127,39 @@ impl Expr {
             _ => false,
         }
     }
+    // post-orderでIndexを振る
+    pub fn post_index(&self, i: &mut usize, postids: &mut HashMap<Expr, usize>) {
+        match self {
+            Expr::UnOp { exp, .. } => {
+                exp.post_index(i, postids);
+                match postids.get(self) {
+                    Some(_v) => return,
+                    None => {
+                        postids.insert(self.clone(), *i);
+                        *i += 1;
+                    }
+                }
+            }
+            Expr::BinOp { exp1, exp2, .. } => {
+                exp1.post_index(i, postids);
+                exp2.post_index(i, postids);
+                match postids.get(self) {
+                    Some(_v) => return,
+                    None => {
+                        postids.insert(self.clone(), *i);
+                        *i += 1;
+                    }
+                }
+            }
+            _ => match postids.get(self) {
+                Some(_v) => return,
+                None => {
+                    postids.insert(self.clone(), *i);
+                    *i += 1;
+                }
+            },
+        }
+    }
 
     pub fn diff(&self, v: &str, e: &Env) -> Rc<Expr> {
         let var = e.borrow().search_var(&String::from(v));
@@ -136,6 +169,95 @@ impl Expr {
                 // unreachable!();
                 Rc::new(Expr::Num(C::new(0, 1)))
             }
+        }
+    }
+    // 合成関数の微分の一段目
+    // 一旦Vecで可変長にする
+    pub fn diff_comp(&self, v: &str, e: &Env) -> Vec<Rc<Expr>> {
+        let v = match e.borrow().search_var(&String::from(v)) {
+            Some(var) => var,
+            None => return vec![Expr::new_num(0, e)],
+        };
+
+        match self {
+            Expr::UnOp { op, exp: inexp } => match op {
+                Uop::Sin => vec![Expr::new_unop(Uop::Cos, inexp.clone(), e)],
+                Uop::Cos => vec![Expr::new_unop(
+                    Uop::Neg,
+                    Expr::new_unop(Uop::Sin, inexp.clone(), e),
+                    e,
+                )],
+                Uop::Tan => {
+                    let factor = Expr::new_binop(
+                        Bop::Pow,
+                        Expr::new_unop(Uop::Cos, inexp.clone(), e),
+                        Expr::new_num(2, e),
+                        e,
+                    );
+                    vec![Expr::new_binop(Bop::Div, Expr::new_num(1, e), factor, e)]
+                }
+                Uop::Log => vec![Expr::new_binop(
+                    Bop::Div,
+                    Expr::new_num(1, e),
+                    inexp.clone(),
+                    e,
+                )],
+                Uop::Exp => vec![e.borrow_mut().extend_expr(self.clone())],
+                Uop::Neg => vec![Expr::new_num(-1, e)],
+            },
+            Expr::BinOp { op, exp1, exp2 } => {
+                let factor_left;
+                let factor_right;
+                match op {
+                    Bop::Add => {
+                        factor_left = Expr::new_num(1, e);
+                        factor_right = Expr::new_num(1, e);
+                    }
+                    Bop::Sub => {
+                        factor_left = Expr::new_num(1, e);
+                        factor_right = Expr::new_num(-1, e);
+                    }
+                    Bop::Mul => {
+                        factor_left = exp2.clone();
+                        factor_right = exp1.clone();
+                    }
+                    Bop::Div => {
+                        factor_left =
+                            Expr::new_binop(Bop::Div, Expr::new_num(1, e), exp2.clone(), e);
+                        let deno = Expr::new_binop(Bop::Pow, exp2.clone(), Expr::new_num(2, e), e);
+                        factor_right = Expr::new_unop(
+                            Uop::Neg,
+                            Expr::new_binop(Bop::Div, exp1.clone(), deno, e),
+                            e,
+                        );
+                    }
+                    Bop::Pow => {
+                        let factor1 = Expr::new_binop(Bop::Div, exp2.clone(), exp1.clone(), e);
+                        let factor2 = Expr::new_unop(Uop::Log, exp1.clone(), e);
+                        factor_left = Expr::new_binop(
+                            Bop::Mul,
+                            factor1,
+                            e.borrow_mut().extend_expr(self.clone()),
+                            e,
+                        );
+                        factor_right = Expr::new_binop(
+                            Bop::Mul,
+                            factor2,
+                            e.borrow_mut().extend_expr(self.clone()),
+                            e,
+                        );
+                    }
+                }
+                vec![factor_left, factor_right]
+            }
+            Expr::Var(vt) => {
+                if *vt == v {
+                    vec![Expr::new_num(1, e)]
+                } else {
+                    vec![Expr::new_num(0, e)]
+                }
+            }
+            Expr::Num(_n) => vec![Expr::new_num(0, e)],
         }
     }
     fn diff_internal(&self, v: Var, e: &Env) -> Rc<Expr> {
