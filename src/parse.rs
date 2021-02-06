@@ -46,8 +46,8 @@ fn variable<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
         }
     })
 }
-pub fn variables<'a>() -> impl Parser<'a, Vec<(Rc<Expr>, &'a Env)>> {
-    one_or_more(whitespace_wrap(variable()))
+pub fn variables<'a>() -> impl Parser<'a, Vec<Rc<Expr>>> {
+    one_or_more(whitespace_wrap(variable())).map(|v| v.into_iter().map(|(v, e)| v).collect())
 }
 
 #[test]
@@ -326,12 +326,14 @@ fn expr_parser() {
         Ok(("", e, (exptcted_expr, e))),
         expr().parse("( ( 2 + log(x) ) / tan(x) ) ^ y  + sin(y) ", e)
     );
-    let res = expr().parse("1 / tan( 1 / x )", e);
+    let res = expr().parse("1 / tan( x )", e);
 
     match res {
         Ok((_, _, (expr, env))) => {
-            expr.diff("x", env).reduce(env).print(env);
+            let d = expr.diff("x", env).reduce(env);
+            d.print(env);
             env.borrow_mut().clean();
+            println!("{}", d.eval("x", &vec![std::f64::consts::FRAC_PI_2], env));
         }
         Err(_) => panic!(""),
     }
