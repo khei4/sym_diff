@@ -144,7 +144,7 @@ impl Deriv {
     }
 
     // 支配関係を求める.
-    fn dom_rel(&self) -> Vec<Option<usize>> {
+    fn dom_rel(&self) -> Vec<HashSet<usize>> {
         let mut doms = vec![None; self.size];
         doms[self.root] = Some(self.root);
         let mut changed = true;
@@ -167,29 +167,20 @@ impl Deriv {
                 }
             }
         }
-        doms
+        let domtree = doms;
+        let mut res: Vec<HashSet<usize>> = vec![HashSet::new(); self.size];
+        for i in 0..self.size {
+            res[i].insert(i);
+            let mut cur = i;
+            while cur != domtree[cur].unwrap() {
+                let dom = domtree[cur].unwrap();
+                res[i].insert(dom);
+                cur = dom;
+            }
+        }
+        res
     }
 
-    // pdomを求める.(複数のエントリーがある)
-    // fn intersect_p(mut b1: usize, mut b2: usize, pdoms: &Vec<Option<usize>>) -> Option<usize> {
-    //     while b1 != b2 {
-    //         while b2 < b1 {
-    //             if pdoms[b1].is_none() || b1 == pdoms[b1].unwrap() {
-    //                 return None;
-    //             } else {
-    //                 b1 = pdoms[b1].expect("dominator intersection failure");
-    //             }
-    //         }
-    //         while b1 < b2 {
-    //             if pdoms[b2].is_none() || b2 == pdoms[b2].unwrap() {
-    //                 return None;
-    //             } else {
-    //                 b2 = pdoms[b2].expect("dominator intersection failure");
-    //             }
-    //         }
-    //     }
-    //     b1
-    // }
     // 逆支配関係を求める.(pdomされてるのが入ってる)
     // HashSetをやめるのはWIP
     fn pdom_rel(&self) -> Vec<HashSet<usize>> {
@@ -222,23 +213,14 @@ impl Deriv {
     }
 
     fn factor_subgraphs(&self) -> Vec<(usize, usize)> {
-        let domtree = self.dom_rel();
-        let mut doms: Vec<HashSet<usize>> = vec![HashSet::new(); self.size];
+        let doms = self.dom_rel();
         let pdoms = self.pdom_rel();
         let mut factor_dom_nodes: HashSet<usize> = HashSet::new();
         let mut factor_pdom_nodes: HashSet<usize> = HashSet::new();
         // 支配木をたどってfactorを探す
         for i in 0..self.size {
-            // factor_dom, ついでにDomをHashSetに
-            doms[i].insert(i);
-            let mut cur = i;
-            while cur != domtree[cur].unwrap() {
-                let dom = domtree[cur].unwrap();
-                doms[i].insert(dom);
-                if 2 <= self.graph[dom].len() {
-                    factor_dom_nodes.insert(dom);
-                }
-                cur = dom;
+            if 2 <= self.graph[i].len() {
+                factor_dom_nodes.insert(i);
             }
             // factor_pdom
             if 2 <= self.reverse_graph[i].len() {
