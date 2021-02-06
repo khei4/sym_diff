@@ -46,6 +46,9 @@ fn variable<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
         }
     })
 }
+pub fn variables<'a>() -> impl Parser<'a, Vec<(Rc<Expr>, &'a Env)>> {
+    one_or_more(whitespace_wrap(variable()))
+}
 
 #[test]
 fn variable_parser() {
