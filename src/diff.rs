@@ -46,7 +46,7 @@ impl Deriv {
         // ここでLeafも計算はできる.
         Deriv {
             size,
-            root: size,
+            root: size - 1,
             leafs,
             graph,
             reverse_graph,
@@ -169,12 +169,62 @@ impl Deriv {
         }
         doms
     }
+
+    // pdomを求める.(複数のエントリーがある)
+    // fn intersect_p(mut b1: usize, mut b2: usize, pdoms: &Vec<Option<usize>>) -> Option<usize> {
+    //     while b1 != b2 {
+    //         while b2 < b1 {
+    //             if pdoms[b1].is_none() || b1 == pdoms[b1].unwrap() {
+    //                 return None;
+    //             } else {
+    //                 b1 = pdoms[b1].expect("dominator intersection failure");
+    //             }
+    //         }
+    //         while b1 < b2 {
+    //             if pdoms[b2].is_none() || b2 == pdoms[b2].unwrap() {
+    //                 return None;
+    //             } else {
+    //                 b2 = pdoms[b2].expect("dominator intersection failure");
+    //             }
+    //         }
+    //     }
+    //     b1
+    // }
+    // 逆支配関係を求める.(pdomされてるのが入ってる)
+    // HashSetをやめるのはWIP
+    fn pdom_rel(&self) -> Vec<HashSet<usize>> {
+        use std::iter::FromIterator;
+        let mut pdoms = vec![HashSet::new(); self.size];
+        for n in 0..self.size {
+            pdoms[n].insert(n);
+        }
+        let leafs: HashSet<usize> = self.leafs.clone().iter().map(|l| *l).collect();
+
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for u in 0..self.size {
+                if leafs.contains(&u) {
+                    continue;
+                }
+                let mut new_set = HashSet::from_iter(0..self.size);
+                for &Edge { to: v, .. } in &self.graph[u] {
+                    new_set = new_set.intersection(&pdoms[v]).map(|e| *e).collect();
+                }
+                new_set.insert(u);
+                if pdoms[u] != new_set {
+                    pdoms[u] = new_set;
+                    changed = true;
+                }
+            }
+        }
+        pdoms
+    }
 }
 #[test]
-fn expr_parser() {
+fn create_diff_graph() {
     let e = &Environment::new();
-    let res = expr().parse("sin(cos(x)) * cos(cos(x))", e);
-
+    let res = expr().parse("log(x) * cos(x) * cos(cos(x))", e);
     match res {
         Ok((_, _, (expr, env))) => {
             expr.diff("x", env).reduce(env).print(env);
@@ -194,6 +244,10 @@ fn expr_parser() {
                     e.exp.print(env);
                 }
             }
+            let doms = d.dom_rel();
+            let pdoms = d.pdom_rel();
+            println!("{:?}", doms);
+            println!("{:?}", pdoms);
         }
         Err(_) => panic!(""),
     }
