@@ -1,3 +1,4 @@
+mod diff;
 mod expr;
 mod parse;
 mod parser_combinator;
