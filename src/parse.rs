@@ -1,5 +1,5 @@
 use super::expr::{Bop, Env, Environment, Expr, Uop, Var, C};
-use super::parser_combinator::*;
+pub use super::parser_combinator::*;
 use std::rc::Rc;
 
 fn unsigned_number<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
@@ -249,7 +249,7 @@ fn term_parser() {
     );
 }
 
-fn expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
+pub fn expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
     whitespace_wrap(term()).and_then(|(one, env)| {
         zero_or_more(whitespace_wrap(pair(
             whitespace_wrap(any_char.pred(|(c, _e)| *c == '+' || *c == '-')),
@@ -323,16 +323,12 @@ fn expr_parser() {
         Ok(("", e, (exptcted_expr, e))),
         expr().parse("( ( 2 + log(x) ) / tan(x) ) ^ y  + sin(y) ", e)
     );
-    let res = expr().parse("1 / tan(x) + 1 / tan(x) + 1 / tan(x)", e);
+    let res = expr().parse("1 / tan( 1 / x )", e);
 
     match res {
         Ok((_, _, (expr, env))) => {
             expr.diff("x", env).reduce(env).print(env);
             env.borrow_mut().clean();
-            for (e, ep) in env.borrow().exprs.iter() {
-                e.print(env);
-                println!("{}", Rc::strong_count(ep));
-            }
         }
         Err(_) => panic!(""),
     }
