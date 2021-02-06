@@ -220,6 +220,48 @@ impl Deriv {
         }
         pdoms
     }
+
+    fn factor_subgraphs(&self) -> Vec<(usize, usize)> {
+        let domtree = self.dom_rel();
+        let mut doms: Vec<HashSet<usize>> = vec![HashSet::new(); self.size];
+        let pdoms = self.pdom_rel();
+        let mut factor_dom_nodes: HashSet<usize> = HashSet::new();
+        let mut factor_pdom_nodes: HashSet<usize> = HashSet::new();
+        // 支配木をたどってfactorを探す
+        for i in 0..self.size {
+            // factor_dom, ついでにDomをHashSetに
+            doms[i].insert(i);
+            let mut cur = i;
+            while cur != domtree[cur].unwrap() {
+                let dom = domtree[cur].unwrap();
+                doms[i].insert(dom);
+                if 2 <= self.graph[dom].len() {
+                    factor_dom_nodes.insert(dom);
+                }
+                cur = dom;
+            }
+            // factor_pdom
+            if 2 <= self.reverse_graph[i].len() {
+                factor_pdom_nodes.insert(i);
+            }
+        }
+        let mut res = vec![];
+        for fd in factor_dom_nodes {
+            for n in 0..self.size {
+                if n != fd && doms[n].contains(&fd) && 2 <= self.reverse_graph[n].len() {
+                    res.push((fd, n));
+                }
+            }
+        }
+        for fpd in factor_pdom_nodes {
+            for n in 0..self.size {
+                if n != fpd && pdoms[n].contains(&fpd) && 2 <= self.graph[n].len() {
+                    res.push((n, fpd));
+                }
+            }
+        }
+        res
+    }
 }
 #[test]
 fn create_diff_graph() {
@@ -248,6 +290,8 @@ fn create_diff_graph() {
             let pdoms = d.pdom_rel();
             println!("{:?}", doms);
             println!("{:?}", pdoms);
+            let fsub = d.factor_subgraphs();
+            println!("{:?}", fsub);
         }
         Err(_) => panic!(""),
     }
