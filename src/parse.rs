@@ -157,7 +157,7 @@ fn term<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                 (one.clone(), env)
             } else {
                 let env = factors.last().unwrap().1 .1;
-                let mut res = env.borrow_mut().extend_expr((*one).clone());
+                let mut res = one.clone();
                 factors.reverse();
                 while let Some(((c, _e1), (f, _e2))) = factors.pop() {
                     match c {
@@ -207,7 +207,8 @@ pub fn expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                 (one.clone(), env)
             } else {
                 let env = terms.last().unwrap().1 .1;
-                let mut res = env.borrow_mut().extend_expr((*one).clone());
+                let mut res = one.clone();
+                // わざわざReverseしなくていいよね...
                 terms.reverse();
                 while let Some(((c, _e1), (t, _e2))) = terms.pop() {
                     match c {
