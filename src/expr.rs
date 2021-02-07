@@ -78,10 +78,6 @@ impl Expr {
         p
     }
 
-    // pub fn new_var(n: usize, env: &Env) -> Rc<Expr> {
-    //     let e = Expr::Var(Var::new(n));
-    //     env.borrow_mut().extend_expr(e)
-    // }
     pub fn new_var(s: String, env: &Env) -> Rc<Expr> {
         let v = env.borrow_mut().extend_var(s);
         let e = Expr::Var(v);
