@@ -59,11 +59,16 @@ impl Expr {
     }
 
     pub fn new_binop(op: Bop, one: Rc<Expr>, other: Rc<Expr>, env: &Env) -> Rc<Expr> {
-        let e = Expr::BinOp {
-            op,
-            exp1: one,
-            exp2: other,
-        };
+        let exp1;
+        let exp2;
+        if one < other {
+            exp1 = one;
+            exp2 = other;
+        } else {
+            exp1 = other;
+            exp2 = one;
+        }
+        let e = Expr::BinOp { op, exp1, exp2 };
         env.borrow_mut().extend_expr(e)
     }
 
@@ -73,8 +78,13 @@ impl Expr {
         p
     }
 
-    pub fn new_var(n: usize, env: &Env) -> Rc<Expr> {
-        let e = Expr::Var(Var::new(n));
+    // pub fn new_var(n: usize, env: &Env) -> Rc<Expr> {
+    //     let e = Expr::Var(Var::new(n));
+    //     env.borrow_mut().extend_expr(e)
+    // }
+    pub fn new_var(s: String, env: &Env) -> Rc<Expr> {
+        let v = env.borrow_mut().extend_var(s);
+        let e = Expr::Var(v);
         env.borrow_mut().extend_expr(e)
     }
 
@@ -477,8 +487,7 @@ impl Expr {
                     }
                 }
             }
-            Expr::Var(vt) => Expr::new_var(vt.id, e),
-            Expr::Num(n) => Expr::new_num_from_rat(*n, e),
+            _ => Rc::new(self.clone()),
         }
     }
 
