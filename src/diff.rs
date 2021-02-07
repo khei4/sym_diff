@@ -4,30 +4,29 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct Edge {
-    to: usize,
-    exp: Rc<Expr>,
+pub struct Edge {
+    pub to: usize,
+    pub exp: Rc<Expr>,
 }
 /*
 let graph: Vec<Vec<Edge>> = vec![vec![]; nodesize];
 let reverse_graph: Vec<Vec<Edge>> = vec![vec![]; nodesize];
 */
 #[derive(Debug, Clone)]
-struct Deriv {
+pub struct Deriv {
     size: usize,
-    root: usize,
+    pub root: usize,
     leafs: HashMap<usize, Option<Var>>,
-    graph: Vec<Vec<Edge>>,
-    reverse_graph: Vec<Vec<Edge>>,
-    diff_by: Var,
+    pub graph: Vec<Vec<Edge>>,
+    pub reverse_graph: Vec<Vec<Edge>>,
+    pub diff_by: Var,
 }
 
 impl Deriv {
-    fn new(expr: Rc<Expr>, e: &Env, v: &str) -> Self {
+    pub fn new(expr: Rc<Expr>, e: &Env, v: &str) -> Self {
         let mut m = HashMap::new();
         let expr = expr.reduce(e);
         expr.post_index(&mut 0, &mut m);
-        println!("{:?}", m);
         let size = m.len();
         let (mut graph, mut reverse_graph) = (vec![vec![]; size], vec![vec![]; size]);
         let mut leafs = HashMap::new();
@@ -269,10 +268,10 @@ impl Deriv {
         env: &Env,
     ) {
         let (start, goal) = (std::cmp::max(fsub.0, fsub.1), std::cmp::min(fsub.0, fsub.1));
-        let mut que = vec![(start, vec![])];
+        let mut stack = vec![(start, vec![])];
         let mut paths = vec![];
-        while 0 < que.len() {
-            let (cur, path) = que.pop().unwrap();
+        while 0 < stack.len() {
+            let (cur, path) = stack.pop().unwrap();
             if cur == goal {
                 paths.push(path);
                 continue;
@@ -282,9 +281,12 @@ impl Deriv {
                 for Edge { to: next, .. } in &self.graph[cur] {
                     let mut p = path.clone();
                     p.push(*next);
-                    que.push((*next, p));
+                    stack.push((*next, p));
                 }
             }
+        }
+        if paths.len() <= 1 {
+            return;
         }
         // domなら 0 > 1,  pdomなら 0 < 1
         let mut res = Expr::new_num(0, env);
@@ -345,7 +347,28 @@ impl Deriv {
         // Edgeを消す, 足す
     }
 
-    fn eval(&mut self, vars: &str, vals: &Vec<f64>, env: &Env) -> f64 {
+    pub fn reduce(&mut self, env: &Env) {
+        let doms = self.dom_rel();
+        let pdoms = self.pdom_rel();
+        let factor_subgraphs = self.factor_subgraphs(&doms, &pdoms);
+        // println!("{:?}", factor_subgraphs);
+        let mut cnt = 0;
+        for fsub in factor_subgraphs {
+            self.shrink(fsub, &doms, &pdoms, env);
+            // for (i, l) in self.graph.iter().enumerate() {
+            //     for edge in l {
+            //         println!("{} -> {}", i, edge.to);
+            //         edge.exp.print(env);
+            //     }
+            // }
+            // if cnt == 10 {
+            //     std::process::exit(0);
+            // }
+            // cnt += 1;
+        }
+    }
+
+    pub fn eval(&mut self, vars: &str, vals: &Vec<f64>, env: &Env) -> f64 {
         let mut varvec: Vec<Var>;
         match variables().parse(vars, env) {
             Ok((_, _, vars)) => {
@@ -363,10 +386,10 @@ impl Deriv {
         self.eval_internal(&varvec, vals)
     }
     fn eval_internal(&mut self, vars: &Vec<Var>, vals: &Vec<f64>) -> f64 {
-        let mut que = vec![(self.root, 1.)];
+        let mut stack = vec![(self.root, 1.)];
         let mut paths: Vec<f64> = vec![];
-        while 0 < que.len() {
-            let (cur, path) = que.pop().unwrap();
+        while 0 < stack.len() {
+            let (cur, path) = stack.pop().unwrap();
             if self.leafs.contains_key(&cur) {
                 match self.leafs[&cur] {
                     Some(v) if v == self.diff_by => {
@@ -377,23 +400,68 @@ impl Deriv {
                 }
             } else {
                 for Edge { to: next, exp } in &self.graph[cur] {
-                    que.push((*next, path * exp.eval_internal(vars, vals)));
+                    stack.push((*next, path * exp.eval_internal(vars, vals)));
                 }
             }
         }
         paths.iter().sum()
+    }
+
+    pub fn evaldp(&self, vars: &str, vals: &Vec<f64>, env: &Env) -> f64 {
+        let mut varvec: Vec<Var>;
+        match variables().parse(vars, env) {
+            Ok((_, _, vars)) => {
+                varvec = vars
+                    .iter()
+                    .map(|v| match **v {
+                        Expr::Var(vv) => vv,
+                        _ => unreachable!(),
+                    })
+                    .collect();
+            }
+            Err(_) => panic!("failed to parse variables"),
+        }
+        varvec.sort();
+        let mut m = HashMap::new();
+        self.evaldp_internal(self.root, &varvec, vals, &mut m)
+    }
+    fn evaldp_internal(
+        &self,
+        cur: usize,
+        vars: &Vec<Var>,
+        vals: &Vec<f64>,
+        memo: &mut HashMap<usize, f64>,
+    ) -> f64 {
+        // メモ化DFSをする
+        match memo.get(&cur) {
+            Some(v) => return *v,
+            None => (),
+        }
+        match self.leafs.get(&cur) {
+            Some(Some(v)) if *v == self.diff_by => {
+                return 1.;
+            }
+            _ => (),
+        }
+        let mut res = 0.;
+        for Edge { to: next, exp } in &self.graph[cur] {
+            let temp = exp.eval_internal(vars, vals);
+            res += self.evaldp_internal(*next, vars, vals, memo) * temp;
+        }
+        memo.insert(cur, res);
+        res
     }
 }
 
 #[test]
 fn create_diff_graph() {
     let e = &Environment::new();
-    let res = expr().parse("x * z / (x + y)", e);
+    let res = expr().parse("x ^ 2 * x ^ 13", e);
     match res {
         Ok((_, _, (expr, env))) => {
             expr.diff("x", env).reduce(env).print(env);
             let mut d = Deriv::new(expr, env, "x");
-            env.borrow_mut().clean();
+            // env.borrow_mut().clean();
             for (i, l) in d.graph.iter().enumerate() {
                 for e in l {
                     println!("{} -> {}", i, e.to);
@@ -413,6 +481,7 @@ fn create_diff_graph() {
                     e.exp.print(env);
                 }
             }
+            println!("{}", d.eval("x", &vec![1.], env));
         }
         Err(_) => panic!(""),
     }
