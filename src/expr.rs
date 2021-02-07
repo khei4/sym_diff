@@ -8,7 +8,7 @@ pub type C = Rational64;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Var {
-    id: usize,
+    pub id: usize,
 }
 
 impl Var {
