@@ -16,7 +16,9 @@ let reverse_graph: Vec<Vec<Edge>> = vec![vec![]; nodesize];
 pub struct Deriv {
     size: usize,
     pub root: usize,
+    roots: Vec<usize>,
     leafs: HashMap<usize, Option<Var>>,
+    vars: HashMap<Var, usize>,
     pub graph: Vec<Vec<Edge>>,
     pub reverse_graph: Vec<Vec<Edge>>,
     pub diff_by: Var,
@@ -45,7 +47,9 @@ impl Deriv {
         Deriv {
             size,
             root: size - 1,
-            leafs: leafs,
+            roots: vec![size - 1], // WIP
+            leafs: leafs,          // deprecated
+            vars: HashMap::new(),  // WIP
             graph,
             reverse_graph,
             diff_by: e.borrow_mut().extend_var(String::from(v)),
@@ -142,13 +146,15 @@ impl Deriv {
     }
 
     // 支配関係を求める.
+    // super_rootを追加する.
     fn dom_rel(&self) -> Vec<HashSet<usize>> {
-        let mut doms = vec![None; self.size];
-        doms[self.root] = Some(self.root);
+        let mut doms: Vec<Option<usize>> = (0..self.size + 1).map(|e| None).collect();
+        // vec![None; self.size+1];
+        doms[self.root + 1] = Some(self.root + 1);
         let mut changed = true;
         while changed {
             changed = false;
-            for u in (0..self.size - 1).rev() {
+            for u in (0..self.size).rev() {
                 let mut new_idom = std::usize::MAX;
                 for &Edge { to: v, .. } in &self.reverse_graph[u] {
                     if let Some(_i) = doms[v] {
@@ -165,6 +171,13 @@ impl Deriv {
                 }
             }
         }
+        for &i in &self.roots {
+            doms[i] = Some(i);
+        }
+        // dummyの根を指すのは元の根のみ
+        for i in 0..doms.len() - 1 {
+            assert!(doms[i] != Some(self.size));
+        }
         let domtree = doms;
         let mut res: Vec<HashSet<usize>> = vec![HashSet::new(); self.size];
         for i in 0..self.size {
@@ -178,35 +191,63 @@ impl Deriv {
         }
         res
     }
-
-    // 逆支配関係を求める.(pdomされてるのが入ってる)
-    // HashSetをやめるのはWIP
-    fn pdom_rel(&self) -> Vec<HashSet<usize>> {
-        use std::iter::FromIterator;
-        let mut pdoms = vec![HashSet::new(); self.size];
-        for n in 0..self.size {
-            pdoms[n].insert(n);
+    // さっきと逆
+    fn intersect_p(mut b1: usize, mut b2: usize, pdoms: &Vec<Option<usize>>) -> usize {
+        while b1 != b2 {
+            while b2 < b1 || b2 == pdoms.len() - 1 {
+                b1 = pdoms[b1].expect("dominator intersection failure");
+            }
+            while b1 < b2 || b1 == pdoms.len() - 1 {
+                b2 = pdoms[b2].expect("dominator intersection failure");
+            }
         }
+        b1
+    }
+    // 逆支配関係を求める.(pdomされてるのが入ってる)
+    // self.sizeがsuper_root
+    fn pdom_rel(&self) -> Vec<HashSet<usize>> {
+        let mut pdoms: Vec<Option<usize>> = (0..self.size + 1).map(|e| None).collect();
+        pdoms[self.size] = Some(self.size);
 
         let mut changed = true;
         while changed {
             changed = false;
             for u in 0..self.size {
-                if self.leafs.contains_key(&u) {
-                    continue;
-                }
-                let mut new_set = HashSet::from_iter(0..self.size);
+                let mut new_idom = std::usize::MAX;
                 for &Edge { to: v, .. } in &self.graph[u] {
-                    new_set = new_set.intersection(&pdoms[v]).map(|e| *e).collect();
+                    if let Some(_i) = pdoms[v] {
+                        if new_idom == std::usize::MAX {
+                            new_idom = v;
+                        } else {
+                            new_idom = Deriv::intersect_p(v, new_idom, &pdoms);
+                        }
+                    }
                 }
-                new_set.insert(u);
-                if pdoms[u] != new_set {
-                    pdoms[u] = new_set;
+                if pdoms[u] != Some(new_idom) {
+                    pdoms[u] = Some(new_idom);
                     changed = true;
                 }
             }
         }
-        pdoms
+        // TODO: leafs is deprecated
+        for (&i, &_v) in &self.leafs {
+            pdoms[i] = Some(i);
+        }
+        for i in 0..pdoms.len() - 1 {
+            assert!(pdoms[i] != Some(self.size));
+        }
+        let pdomtree = pdoms;
+        let mut res: Vec<HashSet<usize>> = vec![HashSet::new(); self.size];
+        for i in 0..self.size {
+            res[i].insert(i);
+            let mut cur = i;
+            while cur != pdomtree[cur].unwrap() {
+                let pdom = pdomtree[cur].unwrap();
+                res[i].insert(pdom);
+                cur = pdom;
+            }
+        }
+        res
     }
 
     fn factor_subgraphs(
@@ -351,23 +392,12 @@ impl Deriv {
         let doms = self.dom_rel();
         let pdoms = self.pdom_rel();
         let factor_subgraphs = self.factor_subgraphs(&doms, &pdoms);
-        // println!("{:?}", factor_subgraphs);
         let mut cnt = 0;
         for fsub in factor_subgraphs {
             self.shrink(fsub, &doms, &pdoms, env);
-            // for (i, l) in self.graph.iter().enumerate() {
-            //     for edge in l {
-            //         println!("{} -> {}", i, edge.to);
-            //         edge.exp.print(env);
-            //     }
-            // }
-            // if cnt == 10 {
-            //     std::process::exit(0);
-            // }
-            // cnt += 1;
         }
     }
-
+    // backward differentiation
     pub fn eval(&mut self, vars: &str, vals: &Vec<f64>, env: &Env) -> f64 {
         let mut varvec: Vec<Var>;
         match variables().parse(vars, env) {
@@ -456,7 +486,10 @@ impl Deriv {
 #[test]
 fn create_diff_graph() {
     let e = &Environment::new();
-    let res = expr().parse("x ^ 2 * x ^ 13", e);
+    let res = expr().parse(
+        "sin(sin(sin(x)+cos(x))+cos(sin(x)+cos(x)))+cos(sin(sin(x)+cos(x))+cos(sin(x)+cos(x)))",
+        e,
+    );
     match res {
         Ok((_, _, (expr, env))) => {
             expr.diff("x", env).reduce(env).print(env);
@@ -470,6 +503,7 @@ fn create_diff_graph() {
             }
             let doms = d.dom_rel();
             let pdoms = d.pdom_rel();
+            println!("{:?}", pdoms);
             let factor_subgraphs = d.factor_subgraphs(&doms, &pdoms);
             for fsub in factor_subgraphs {
                 d.shrink(fsub, &doms, &pdoms, env);
