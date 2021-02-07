@@ -180,33 +180,63 @@ impl Deriv {
     }
 
     // 逆支配関係を求める.(pdomされてるのが入ってる)
-    // HashSetをやめるのはWIP
-    fn pdom_rel(&self) -> Vec<HashSet<usize>> {
-        use std::iter::FromIterator;
-        let mut pdoms = vec![HashSet::new(); self.size];
-        for n in 0..self.size {
-            pdoms[n].insert(n);
+    // さっきと逆
+    fn intersect_p(mut b1: usize, mut b2: usize, pdoms: &Vec<Option<usize>>) -> usize {
+        while b1 != b2 {
+            while b2 < b1 || b2 == pdoms.len() - 1 {
+                b1 = pdoms[b1].expect("dominator intersection failure");
+            }
+            while b1 < b2 || b1 == pdoms.len() - 1 {
+                b2 = pdoms[b2].expect("dominator intersection failure");
+            }
         }
+        b1
+    }
+    // 逆支配関係を求める.(pdomされてるのが入ってる)
+    // self.sizeがsuper_root
+    fn pdom_rel(&self) -> Vec<HashSet<usize>> {
+        let mut pdoms: Vec<Option<usize>> = (0..self.size + 1).map(|e| None).collect();
+        pdoms[self.size] = Some(self.size);
 
         let mut changed = true;
         while changed {
             changed = false;
             for u in 0..self.size {
-                if self.leafs.contains_key(&u) {
-                    continue;
-                }
-                let mut new_set = HashSet::from_iter(0..self.size);
+                let mut new_idom = std::usize::MAX;
                 for &Edge { to: v, .. } in &self.graph[u] {
-                    new_set = new_set.intersection(&pdoms[v]).map(|e| *e).collect();
+                    if let Some(_i) = pdoms[v] {
+                        if new_idom == std::usize::MAX {
+                            new_idom = v;
+                        } else {
+                            new_idom = Deriv::intersect_p(v, new_idom, &pdoms);
+                        }
+                    }
                 }
-                new_set.insert(u);
-                if pdoms[u] != new_set {
-                    pdoms[u] = new_set;
+                if pdoms[u] != Some(new_idom) {
+                    pdoms[u] = Some(new_idom);
                     changed = true;
                 }
             }
         }
-        pdoms
+        // TODO: leafs is deprecated
+        for (&i, &_v) in &self.leafs {
+            pdoms[i] = Some(i);
+        }
+        for i in 0..pdoms.len() - 1 {
+            assert!(pdoms[i] != Some(self.size));
+        }
+        let pdomtree = pdoms;
+        let mut res: Vec<HashSet<usize>> = vec![HashSet::new(); self.size];
+        for i in 0..self.size {
+            res[i].insert(i);
+            let mut cur = i;
+            while cur != pdomtree[cur].unwrap() {
+                let pdom = pdomtree[cur].unwrap();
+                res[i].insert(pdom);
+                cur = pdom;
+            }
+        }
+        res
     }
 
     fn factor_subgraphs(
@@ -456,7 +486,11 @@ impl Deriv {
 #[test]
 fn create_diff_graph() {
     let e = &Environment::new();
-    let res = expr().parse("x ^ 2 * x ^ 13", e);
+    let res = expr().parse(
+        "sin(sin(sin(x)+cos(x))+cos(sin(x)+cos(x)))+cos(sin(sin(x)+cos(x))+cos(sin(x)+cos(x)))
+    ",
+        e,
+    );
     match res {
         Ok((_, _, (expr, env))) => {
             expr.diff("x", env).reduce(env).print(env);
