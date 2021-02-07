@@ -4,62 +4,53 @@ use std::rc::Rc;
 
 fn unsigned_number<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
     one_or_more(any_char.pred(|c| c.0.is_numeric())).map(|chars| {
-        let expr = Expr::Num(chars.iter().fold(C::new(0, 1), |s, c| {
-            s * C::new(10, 1) + C::new(c.0.to_digit(10).expect("") as i64, 1)
-        }));
         let env = chars.last().expect("").1;
-        let p = env.borrow_mut().extend_expr(expr);
-        return (p, env);
+        (
+            Expr::new_num(
+                chars
+                    .iter()
+                    .fold(0, |s, c| s * 10 + c.0.to_digit(10).expect("") as i64),
+                env,
+            ),
+            env,
+        )
     })
 }
 #[test]
 fn number_parser() {
-    let e = Environment::new();
+    let e = &Environment::new();
     assert_eq!(
-        Ok(("", &e, (Rc::new(Expr::Num(C::new(64, 1))), &e))),
-        unsigned_number().parse("64", &e)
+        Ok(("", e, (Expr::new_num(64, e), e))),
+        unsigned_number().parse("64", e)
     );
     assert_eq!(
-        Ok(("", &e, (Rc::new(Expr::Num(C::new(12333, 1))), &e))),
-        unsigned_number().parse("12333", &e)
+        Ok(("", e, (Expr::new_num(12333, e), e))),
+        unsigned_number().parse("12333", e)
     );
-    assert_eq!(
-        Ok(("", &e, (Rc::new(Expr::Num(C::new(64, 1))), &e))),
-        unsigned_number().parse("64", &e)
-    );
-    println!("{:?}", e);
-    // assert_eq!(Ok(("", &e, Expr::Num(0))), unsigned_number().parse("0", &e));
-    assert_eq!(Err(""), unsigned_number().parse("", &e));
-    assert_eq!(Err("-123"), unsigned_number().parse("-123", &e));
+    assert_eq!(Err(""), unsigned_number().parse("", e));
+    assert_eq!(Err("-123"), unsigned_number().parse("-123", e));
 }
 
 fn variable<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
     identifier.map(|(s, env)| {
-        let option_var = env.borrow_mut().search_var(&s);
-        if let Some(var) = option_var {
-            let var_expr = env.borrow().exprs[&Expr::Var(var)].clone();
-            (var_expr, env)
-        } else {
-            let v = env.borrow_mut().extend_var(s);
-            let var_expr = env.borrow_mut().extend_expr(Expr::Var(v));
-            (var_expr, env)
-        }
+        let v = env.borrow_mut().extend_var(s);
+        (Expr::new_var(v.id, env), env)
     })
 }
 pub fn variables<'a>() -> impl Parser<'a, Vec<Rc<Expr>>> {
-    one_or_more(whitespace_wrap(variable())).map(|v| v.into_iter().map(|(v, e)| v).collect())
+    one_or_more(whitespace_wrap(variable())).map(|v| v.into_iter().map(|(v, _e)| v).collect())
 }
 
 #[test]
 fn variable_parser() {
-    let e = Environment::new();
+    let e = &Environment::new();
     assert_eq!(
-        Ok(("", &e, (Rc::new(Expr::Var(Var::new(0))), &e))),
-        variable().parse("x1", &e)
+        Ok(("", e, (Expr::new_var(0, e), e))),
+        variable().parse("x1", e)
     );
     assert_eq!(
-        Ok(("", &e, (Rc::new(Expr::Var(Var::new(0))), &e))),
-        variable().parse("x1", &e)
+        Ok(("", e, (Expr::new_var(0, e), e))),
+        variable().parse("x1", e)
     );
     println!("{:?}", e);
 }
@@ -73,42 +64,27 @@ fn func<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
         one_of(vec!["sin", "cos", "tan", "log", "exp"]),
         parenthesized_expr(),
     )
-    .map(|(name, (ex, env))| {
-        let expr;
+    .map(|(name, (exp, env))| {
+        let op;
         match name {
             "sin" => {
-                expr = Expr::UnOp {
-                    op: Uop::Sin,
-                    exp: ex,
-                }
+                op = Uop::Sin;
             }
             "cos" => {
-                expr = Expr::UnOp {
-                    op: Uop::Cos,
-                    exp: ex,
-                }
+                op = Uop::Cos;
             }
             "tan" => {
-                expr = Expr::UnOp {
-                    op: Uop::Tan,
-                    exp: ex,
-                }
+                op = Uop::Tan;
             }
             "log" => {
-                expr = Expr::UnOp {
-                    op: Uop::Log,
-                    exp: ex,
-                }
+                op = Uop::Log;
             }
             "exp" => {
-                expr = Expr::UnOp {
-                    op: Uop::Exp,
-                    exp: ex,
-                }
+                op = Uop::Exp;
             }
             _ => unimplemented!(),
         }
-        (env.borrow_mut().extend_expr(expr), env)
+        (Expr::new_unop(op, exp, env), env)
     })
 }
 
@@ -117,18 +93,12 @@ fn unary<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
         any_char.pred(|(c, _e)| *c == '+' || *c == '-'),
     ))
     .and_then(|vec_c_r| {
-        either(func(), primary()).map(move |(p, env)| {
-            let expr;
+        either(func(), primary()).map(move |(mut res, env)| {
             if vec_c_r.iter().filter(|(c, _e)| *c == '-').count() % 2 != 0 {
-                // expr = Expr::Neg(p);
-                expr = Expr::UnOp {
-                    op: Uop::Neg,
-                    exp: p,
-                };
-                let p = env.borrow_mut().extend_expr(expr);
-                return (p, env);
+                res = Expr::new_unop(Uop::Neg, res, env);
+                return (res, env);
             } else {
-                return (p, env);
+                return (res, env);
             }
         })
     })
@@ -151,27 +121,11 @@ fn factor<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                 (one.clone(), env)
             } else {
                 let env = unaries.last().unwrap().1;
-                let mut pow: Rc<Expr> = unaries.pop().unwrap().0;
-                let expr = Expr::BinOp {
-                    op: Bop::Pow,
-                    exp1: one.clone(),
-                    exp2: pow,
-                };
-                let mut res = Expr::new_num(std::i64::MAX, env);
-
-                res = env.borrow_mut().extend_expr(expr);
-                // 毎更新ごとに登録
+                let mut res = unaries.pop().unwrap().0;
                 while let Some((una, _env)) = unaries.pop() {
-                    let mut cur_expr = (*res).clone();
-                    match &mut cur_expr {
-                        Expr::BinOp { exp2, .. } => {
-                            pow = Expr::new_binop(Bop::Pow, una, exp2.clone(), env);
-                            *exp2 = pow;
-                        }
-                        _ => unreachable!(),
-                    }
-                    res = env.borrow_mut().extend_expr(cur_expr);
+                    res = Expr::new_binop(Bop::Pow, una, res, env);
                 }
+                res = Expr::new_binop(Bop::Pow, one.clone(), res, env);
                 (res, env)
             }
         })
@@ -206,25 +160,15 @@ fn term<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                 let mut res = env.borrow_mut().extend_expr((*one).clone());
                 factors.reverse();
                 while let Some(((c, _e1), (f, _e2))) = factors.pop() {
-                    let cur_expr;
                     match c {
                         '*' => {
-                            cur_expr = Expr::BinOp {
-                                op: Bop::Mul,
-                                exp1: res,
-                                exp2: f,
-                            };
+                            res = Expr::new_binop(Bop::Mul, res, f, env);
                         }
                         '/' => {
-                            cur_expr = Expr::BinOp {
-                                op: Bop::Div,
-                                exp1: res,
-                                exp2: f,
-                            };
+                            res = Expr::new_binop(Bop::Div, res, f, env);
                         }
                         _ => unreachable!(),
                     }
-                    res = env.borrow_mut().extend_expr(cur_expr);
                 }
                 (res, env)
             }
@@ -266,25 +210,15 @@ pub fn expr<'a>() -> impl Parser<'a, (Rc<Expr>, &'a Env)> {
                 let mut res = env.borrow_mut().extend_expr((*one).clone());
                 terms.reverse();
                 while let Some(((c, _e1), (t, _e2))) = terms.pop() {
-                    let cur_expr;
                     match c {
                         '+' => {
-                            cur_expr = Expr::BinOp {
-                                op: Bop::Add,
-                                exp1: res,
-                                exp2: t,
-                            };
+                            res = Expr::new_binop(Bop::Add, res, t, env);
                         }
                         '-' => {
-                            cur_expr = Expr::BinOp {
-                                op: Bop::Sub,
-                                exp1: res,
-                                exp2: t,
-                            };
+                            res = Expr::new_binop(Bop::Sub, res, t, env);
                         }
                         _ => unreachable!(),
                     }
-                    res = env.borrow_mut().extend_expr(cur_expr);
                 }
                 (res, env)
             }
