@@ -41,6 +41,8 @@ mod tests {
         }
         let d_for_dp = d.clone();
         d.reduce(e);
+        let xs = String::from("x");
+        let v = e.borrow().rev_vars[&xs];
         loop {
             for (i, l) in d.graph.iter().enumerate() {
                 for edge in l {
@@ -52,10 +54,11 @@ mod tests {
             let time = Duration::span(|| println!("{}", naive_d.eval(&var, &vec![x], e)));
             println!("naive:{} micro sec takes", time.num_microseconds().unwrap());
             println!("naive:{} nano sec takes", time.num_nanoseconds().unwrap());
-            let time = Duration::span(|| println!("{}", d_for_dp.evaldp(&var, &vec![x], e)));
+            let time =
+                Duration::span(|| println!("{}", d_for_dp.forward_eval_dp(v, &var, &vec![x], e)));
             println!("dp:{} micro sec takes", time.num_microseconds().unwrap());
             println!("dp:{} nano sec takes", time.num_nanoseconds().unwrap());
-            let time = Duration::span(|| println!("{}", d.eval(&var, &vec![x], e)));
+            let time = Duration::span(|| println!("{}", d.forward_eval(v, &var, &vec![x], e)));
             println!("dom:{} micro sec takes", time.num_microseconds().unwrap());
             println!("dom:{} nano sec takes", time.num_nanoseconds().unwrap());
         }
@@ -64,7 +67,7 @@ mod tests {
     #[test]
     fn large_example_chain() {
         let e = &Environment::new();
-        let size = 13;
+        let size = 16;
         let v = match variables().parse(&"x", e) {
             Ok((_, _, mut vars)) => {
                 assert!(vars.len() == 1);
@@ -85,15 +88,18 @@ mod tests {
         let mut d = Deriv::new(target_expr, e, &var);
         let d_for_dp = d.clone();
         d.reduce(e);
+        let xs = String::from("x");
+        let v = e.borrow().rev_vars[&xs];
         loop {
             let x: f64 = read();
             let time = Duration::span(|| println!("{}", naive_d.eval(&var, &vec![x], e)));
             println!("naive:{} micro sec takes", time.num_microseconds().unwrap());
             println!("naive:{} nano sec takes", time.num_nanoseconds().unwrap());
-            let time = Duration::span(|| println!("{}", d_for_dp.evaldp(&var, &vec![x], e)));
+            let time =
+                Duration::span(|| println!("{}", d_for_dp.forward_eval_dp(v, &var, &vec![x], e)));
             println!("dp:{} micro sec takes", time.num_microseconds().unwrap());
             println!("dp:{} nano sec takes", time.num_nanoseconds().unwrap());
-            let time = Duration::span(|| println!("{}", d.eval(&var, &vec![x], e)));
+            let time = Duration::span(|| println!("{}", d.forward_eval(v, &var, &vec![x], e)));
             println!("dom:{} micro sec takes", time.num_microseconds().unwrap());
             println!("dom:{} nano sec takes", time.num_nanoseconds().unwrap());
         }
@@ -102,7 +108,7 @@ mod tests {
     #[test]
     fn large_example_circle() {
         let e = &Environment::new();
-        let size = 100;
+        let size = 200;
         let v = match variables().parse(&"x", e) {
             Ok((_, _, mut vars)) => {
                 assert!(vars.len() == 1);
@@ -125,15 +131,18 @@ mod tests {
         let mut d = Deriv::new(target_expr, e, &var);
         let d_for_dp = d.clone();
         d.reduce(e);
+        let xs = String::from("x");
+        let v = e.borrow().rev_vars[&xs];
         loop {
             let x: f64 = read();
             let time = Duration::span(|| println!("{}", naive_d.eval(&var, &vec![x], e)));
             println!("naive:{} micro sec takes", time.num_microseconds().unwrap());
             println!("naive:{} nano sec takes", time.num_nanoseconds().unwrap());
-            let time = Duration::span(|| println!("{}", d_for_dp.evaldp(&var, &vec![x], e)));
+            let time =
+                Duration::span(|| println!("{}", d_for_dp.forward_eval_dp(v, &var, &vec![x], e)));
             println!("dp:{} micro sec takes", time.num_microseconds().unwrap());
             println!("dp:{} nano sec takes", time.num_nanoseconds().unwrap());
-            let time = Duration::span(|| println!("{}", d.eval(&var, &vec![x], e)));
+            let time = Duration::span(|| println!("{}", d.forward_eval(v, &var, &vec![x], e)));
             println!("dom:{} micro sec takes", time.num_microseconds().unwrap());
             println!("dom:{} nano sec takes", time.num_nanoseconds().unwrap());
         }
