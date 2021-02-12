@@ -17,9 +17,9 @@ pub struct Deriv {
     size: usize,
     pub root: usize,
     leafs: HashMap<usize, Option<Var>>,
+    pub vars: HashMap<Var, usize>,
     pub graph: Vec<Vec<Edge>>,
     pub reverse_graph: Vec<Vec<Edge>>,
-    pub diff_by: Var,
 }
 
 impl Deriv {
@@ -45,10 +45,14 @@ impl Deriv {
         Deriv {
             size,
             root: size - 1,
-            leafs: leafs,
+            leafs: leafs.clone(),
+            vars: leafs
+                .into_iter()
+                .filter(|(_, v)| v.is_some())
+                .map(|(k, v)| (v.unwrap(), k))
+                .collect(),
             graph,
             reverse_graph,
-            diff_by: e.borrow_mut().extend_var(String::from(v)),
         }
     }
     fn construct(
@@ -298,6 +302,9 @@ impl Deriv {
         env: &Env,
     ) {
         let (start, goal) = (std::cmp::max(fsub.0, fsub.1), std::cmp::min(fsub.0, fsub.1));
+        if self.graph[start].len() < 2 || self.reverse_graph[goal].len() < 2 {
+            return;
+        }
         let mut stack = vec![(start, vec![])];
         let mut paths = vec![];
         while 0 < stack.len() {
@@ -314,9 +321,6 @@ impl Deriv {
                     stack.push((*next, p));
                 }
             }
-        }
-        if paths.len() <= 1 {
-            return;
         }
         // domなら 0 > 1,  pdomなら 0 < 1
         let mut res = Expr::new_num(0, env);
@@ -374,31 +378,20 @@ impl Deriv {
         };
         self.graph[start].push(new_edge);
         self.reverse_graph[goal].push(new_redge);
-        // Edgeを消す, 足す
     }
 
     pub fn reduce(&mut self, env: &Env) {
         let doms = self.dom_rel();
         let pdoms = self.pdom_rel();
         let factor_subgraphs = self.factor_subgraphs(&doms, &pdoms);
-        // println!("{:?}", factor_subgraphs);
         let mut cnt = 0;
         for fsub in factor_subgraphs {
             self.shrink(fsub, &doms, &pdoms, env);
-            // for (i, l) in self.graph.iter().enumerate() {
-            //     for edge in l {
-            //         println!("{} -> {}", i, edge.to);
-            //         edge.exp.print(env);
-            //     }
-            // }
-            // if cnt == 10 {
-            //     std::process::exit(0);
-            // }
-            // cnt += 1;
         }
     }
-
-    pub fn eval(&mut self, vars: &str, vals: &Vec<f64>, env: &Env) -> f64 {
+    // diff by v をvalsで評価(forward)
+    // vはVarなの？？型ごちゃごちゃすぎん
+    pub fn forward_eval(&self, v: Var, vars: &str, vals: &Vec<f64>, env: &Env) -> f64 {
         let mut varvec: Vec<Var>;
         match variables().parse(vars, env) {
             Ok((_, _, vars)) => {
@@ -413,19 +406,50 @@ impl Deriv {
             Err(_) => panic!("failed to parse variables"),
         }
         varvec.sort();
-        self.eval_internal(&varvec, vals)
+        self.forward_eval_internal(self.vars[&v], &varvec, vals)
     }
-    fn eval_internal(&mut self, vars: &Vec<Var>, vals: &Vec<f64>) -> f64 {
+    fn forward_eval_internal(&self, cur: usize, vars: &Vec<Var>, vals: &Vec<f64>) -> f64 {
+        if cur == self.root {
+            1.
+        } else {
+            let mut res = 0.;
+            for Edge { to: next, exp } in &self.reverse_graph[cur] {
+                let temp = exp.eval_internal(vars, vals);
+                res += self.forward_eval_internal(*next, vars, vals) * temp;
+            }
+            res
+        }
+    }
+
+    pub fn backward_grad(&mut self, vars: &str, vals: &Vec<f64>, env: &Env) -> Vec<f64> {
+        let mut varvec: Vec<Var>;
+        match variables().parse(vars, env) {
+            Ok((_, _, vars)) => {
+                varvec = vars
+                    .iter()
+                    .map(|v| match **v {
+                        Expr::Var(vv) => vv,
+                        _ => unreachable!(),
+                    })
+                    .collect();
+            }
+            Err(_) => panic!("failed to parse variables"),
+        }
+        varvec.sort();
+        self.backward_grad_internal(&varvec, vals)
+    }
+    fn backward_grad_internal(&mut self, vars: &Vec<Var>, vals: &Vec<f64>) -> Vec<f64> {
+        let mut res = vec![std::f64::NAN];
         let mut stack = vec![(self.root, 1.)];
         let mut paths: Vec<f64> = vec![];
         while 0 < stack.len() {
             let (cur, path) = stack.pop().unwrap();
             if self.leafs.contains_key(&cur) {
                 match self.leafs[&cur] {
-                    Some(v) if v == self.diff_by => {
-                        paths.push(path);
-                        break;
-                    }
+                    Some(v) => match vars.binary_search(&v) {
+                        Ok(i) => res[i] = path,
+                        Err(_) => panic!("no value is given"),
+                    },
                     _ => continue,
                 }
             } else {
@@ -434,10 +458,10 @@ impl Deriv {
                 }
             }
         }
-        paths.iter().sum()
+        res
     }
 
-    pub fn evaldp(&self, vars: &str, vals: &Vec<f64>, env: &Env) -> f64 {
+    pub fn forward_eval_dp(&self, v: Var, vars: &str, vals: &Vec<f64>, env: &Env) -> f64 {
         let mut varvec: Vec<Var>;
         match variables().parse(vars, env) {
             Ok((_, _, vars)) => {
@@ -452,34 +476,29 @@ impl Deriv {
             Err(_) => panic!("failed to parse variables"),
         }
         varvec.sort();
-        let mut m = HashMap::new();
-        self.evaldp_internal(self.root, &varvec, vals, &mut m)
+        let mut memo = HashMap::new();
+        self.forward_eval_dp_internal(self.vars[&v], &varvec, vals, &mut memo)
     }
-    fn evaldp_internal(
+    fn forward_eval_dp_internal(
         &self,
         cur: usize,
         vars: &Vec<Var>,
         vals: &Vec<f64>,
         memo: &mut HashMap<usize, f64>,
     ) -> f64 {
-        // メモ化DFSをする
-        match memo.get(&cur) {
-            Some(v) => return *v,
-            None => (),
-        }
-        match self.leafs.get(&cur) {
-            Some(Some(v)) if *v == self.diff_by => {
-                return 1.;
+        if let Some(v) = memo.get(&cur) {
+            *v
+        } else if cur == self.root {
+            1.
+        } else {
+            let mut res = 0.;
+            for Edge { to: next, exp } in &self.reverse_graph[cur] {
+                let temp = exp.eval_internal(vars, vals);
+                res += self.forward_eval_dp_internal(*next, vars, vals, memo) * temp;
             }
-            _ => (),
+            memo.insert(cur, res);
+            res
         }
-        let mut res = 0.;
-        for Edge { to: next, exp } in &self.graph[cur] {
-            let temp = exp.eval_internal(vars, vals);
-            res += self.evaldp_internal(*next, vars, vals, memo) * temp;
-        }
-        memo.insert(cur, res);
-        res
     }
 }
 
@@ -495,7 +514,6 @@ fn create_diff_graph() {
         Ok((_, _, (expr, env))) => {
             expr.diff("x", env).reduce(env).print(env);
             let mut d = Deriv::new(expr, env, "x");
-            // env.borrow_mut().clean();
             for (i, l) in d.graph.iter().enumerate() {
                 for e in l {
                     println!("{} -> {}", i, e.to);
@@ -515,7 +533,9 @@ fn create_diff_graph() {
                     e.exp.print(env);
                 }
             }
-            println!("{}", d.eval("x", &vec![1.], env));
+            let x = String::from("x");
+            let v = env.borrow().rev_vars[&x];
+            println!("{}", d.forward_eval(v, "x", &vec![1.], env));
         }
         Err(_) => panic!(""),
     }
