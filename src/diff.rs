@@ -421,7 +421,7 @@ impl Deriv {
         }
     }
 
-    pub fn backward_grad(&mut self, vars: &str, vals: &Vec<f64>, env: &Env) -> Vec<f64> {
+    pub fn backward_grad(&self, vars: &str, vals: &Vec<f64>, env: &Env) -> Vec<f64> {
         let mut varvec: Vec<Var>;
         match variables().parse(vars, env) {
             Ok((_, _, vars)) => {
@@ -438,7 +438,7 @@ impl Deriv {
         varvec.sort();
         self.backward_grad_internal(&varvec, vals)
     }
-    fn backward_grad_internal(&mut self, vars: &Vec<Var>, vals: &Vec<f64>) -> Vec<f64> {
+    fn backward_grad_internal(&self, vars: &Vec<Var>, vals: &Vec<f64>) -> Vec<f64> {
         let mut res = vec![std::f64::NAN];
         let mut stack = vec![(self.root, 1.)];
         let mut paths: Vec<f64> = vec![];
