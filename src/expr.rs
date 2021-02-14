@@ -78,6 +78,18 @@ impl Expr {
         p
     }
 
+    pub fn pi(env: &Env) -> Rc<Expr> {
+        let pnum = Expr::new_num(1833616417, env);
+        let pden = Expr::new_num(583658233, env);
+        Expr::new_binop(Bop::Div, pnum, pden, env).reduce(env)
+    }
+    pub fn sqrt(expr: Rc<Expr>, env: &Env) -> Rc<Expr> {
+        let pnum = Expr::new_num(1, env);
+        let pden = Expr::new_num(2, env);
+        let half = Expr::new_binop(Bop::Div, pnum, pden, env).reduce(env);
+        Expr::new_binop(Bop::Pow, expr, half, env)
+    }
+
     pub fn new_var(s: String, env: &Env) -> Rc<Expr> {
         let v = env.borrow_mut().extend_var(s);
         let e = Expr::Var(v);
